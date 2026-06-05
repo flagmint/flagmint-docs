@@ -1,0 +1,96 @@
+---
+title: "Go SDK"
+description: "Server-side Go SDK for evaluating feature flags with pluggable caching and real-time updates"
+---
+
+# Flagmint Go SDK
+
+The Flagmint Go SDK is a high-performance, type-safe client for evaluating feature flags in Go applications. It features flexible caching strategies, real-time updates, and efficient local evaluation.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/sdks/go/quickstart">
+    Get up and running in minutes
+  </Card>
+  <Card title="Configuration" icon="gear" href="/sdks/go/configuration">
+    Customize SDK behavior
+  </Card>
+  <Card title="Local Evaluation" icon="zap" href="/sdks/go/local-evaluation">
+    Evaluate flags locally
+  </Card>
+  <Card title="Caching" icon="database" href="/sdks/go/caching">
+    Configure caching strategies
+  </Card>
+  <Card title="Transport" icon="network-wired" href="/sdks/go/transport">
+    WebSocket and polling
+  </Card>
+</CardGroup>
+
+## Key Features
+
+- **High Performance** — Optimized for server-side flag evaluation
+- **Local Evaluation** — Evaluate flags without making network requests
+- **Flexible Caching** — Built-in in-memory cache with customizable options
+- **Real-time Updates** — WebSocket support with automatic fallback
+- **Type-Safe** — Full Go typing with clear error handling
+- **Production Ready** — Battle-tested in high-throughput environments
+
+## Installation
+
+```bash
+go get github.com/flagmint/flagmint-go
+```
+
+## Quick Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    flagmint "github.com/flagmint/flagmint-go"
+)
+
+func main() {
+    client, err := flagmint.NewClient("fm_sdk_your_api_key",
+        flagmint.WithContext(flagmint.EvaluationContext{
+            Kind: "user",
+            Key:  "user-123",
+            Attributes: map[string]any{
+                "country": "DE",
+                "plan":    "pro",
+            },
+        }),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer client.Close()
+
+    // Wait for flags to load
+    ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    defer cancel()
+    
+    if err := client.WaitForReady(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    // Evaluate a flag
+    value, err := client.Evaluate("my-feature-flag")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Flag value: %v", value)
+}
+```
+
+## Next Steps
+
+- **[Quick Start](/sdks/go/quickstart)** — Complete setup guide
+- **[Configuration](/sdks/go/configuration)** — API keys, contexts, and options
+- **[Caching](/sdks/go/caching)** — In-memory, custom, and advanced caching
+- **[Local Evaluation](/sdks/go/local-evaluation)** — Evaluate without network calls
+- **[Transport](/sdks/go/transport)** — WebSocket and polling strategies
