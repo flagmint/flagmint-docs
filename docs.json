@@ -70,10 +70,7 @@
           {
             "group": "Security & Compliance",
             "pages": [
-              "security/gdpr",
-              "security/data-residency",
-              "security/dpa",
-              "security/practices"
+              "security/index"
             ]
           },
           {
