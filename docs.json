@@ -27,7 +27,7 @@
   "footer": {
     "socials": {
       "github": "https://github.com/jtad009/Flagmint-ui",
-      "linkedin": "https://linkedin.com/company/flagmint"
+      "linkedin": "https://linkedin.com/flagmint"
     }
   },
   "navigation": {
@@ -42,7 +42,8 @@
               "getting-started/quickstart",
               "getting-started/concepts",
               "getting-started/your-first-flag",
-              "getting-started/invitation"
+              "getting-started/invitation",
+              "getting-started/evaluation-logic"
             ]
           },
           {
@@ -76,6 +77,12 @@
             ]
           },
           {
+            "group": "Platform",
+            "pages": [
+              "platform/webhooks"
+            ]
+          },
+          {
             "group": "Resources",
             "pages": [
               "resources/migrate-from-launchdarkly",
@@ -91,7 +98,7 @@
         "groups": [
           {
             "group": "Client-Side SDKs",
-            "pages": ["sdks/react", "sdks/vuejs"]
+            "pages": ["sdks/react", "sdks/vuejs", "sdks/privacy-and-caching"]
           },
           {
             "group": "Server-Side SDKs",

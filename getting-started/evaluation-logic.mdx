@@ -1,0 +1,229 @@
+---
+title: "How Flags Are Evaluated"
+description: "Understanding the evaluation order and interaction between targeting rules, rollouts, and variations"
+---
+
+## Evaluation Order
+
+Flagmint evaluates flags in a strict priority order. Understanding this order is critical for designing effective flag configurations and predicting user experiences.
+
+### The Evaluation Pipeline
+
+When a flag is evaluated, Flagmint checks the following conditions **in order**, stopping as soon as a match is found:
+
+<Steps>
+  <Step title="Kill Switch Check">
+    If `flag.is_active = false`, the **control variation** is returned immediately. No further evaluation occurs.
+    
+    This allows you to instantly disable a feature across all environments and users.
+  </Step>
+
+  <Step title="Targeting Rules">
+    Targeting rules are evaluated in **priority order** (lowest priority number first).
+    
+    - Each active targeting rule is checked against the user context
+    - The **first matching rule** returns its assigned variation
+    - Evaluation stops immediately when a match is found
+    
+    Use targeting rules for explicit, deterministic assignments (e.g., "all French users get variation A").
+  </Step>
+
+  <Step title="Targeted Rollouts">
+    Targeted rollouts are evaluated in **priority order** (lowest priority number first).
+    
+    For each targeted rollout:
+    - Check if the user matches the segment or inline conditions
+    - **If matched:** Apply percentage split via consistent hashing
+      - Returns either the rollout variation OR the fallback variation
+      - Evaluation stops here
+    - **If not matched:** Continue to next targeted rollout
+    
+    Use targeted rollouts for gradual releases to specific audiences (e.g., "50% of enterprise users get the new feature").
+  </Step>
+
+  <Step title="Global Rollout">
+    The global rollout applies to **all traffic that didn't match steps 2-3**.
+    
+    - This is the "everyone else" bucket
+    - Percentage split via consistent hashing
+    - Returns either the rollout variation OR the control variation
+    
+    <Note>
+      **Important:** Global rollout always evaluates for unmatched traffic, regardless of whether targeting rules or targeted rollouts exist. It does not require an empty ruleset to activate.
+    </Note>
+    
+    Use global rollout for gradual releases to your general user base.
+  </Step>
+
+  <Step title="Default Variation">
+    If no rules matched and no rollout applied, the flag's **default variation** is returned.
+    
+    This is your final fallback and ensures every evaluation returns a value.
+  </Step>
+</Steps>
+
+---
+
+## Key Principles
+
+<AccordionGroup>
+  <Accordion title="Global Rollout is a Catch-All">
+    Global rollout is NOT gated by the presence or absence of targeting rules or targeted rollouts. It applies to **everyone who reaches step 4** — meaning they didn't match any earlier conditions.
+    
+    This makes it a true "catch-all" for unmatched traffic, not a "default when no rules exist" fallback.
+  </Accordion>
+
+  <Accordion title="First Match Wins">
+    Evaluation stops as soon as a condition matches. Order your targeting rules and targeted rollouts carefully by priority to ensure the right logic executes first.
+  </Accordion>
+
+  <Accordion title="Consistent Hashing for Rollouts">
+    Rollouts use consistent hashing based on the flag ID and user ID. This ensures:
+    - The same user always gets the same variation for a given flag
+    - Rollout percentages are stable and predictable
+    - Users don't flip-flop between variations on different requests
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Example Scenario
+
+Let's walk through how different users are evaluated with this flag configuration:
+
+```yaml
+Flag: new_checkout_flow
+Control Variation: old_checkout
+Default Variation: old_checkout
+
+Targeting Rules:
+  - Rule 1 (priority 0): country = "FR" → variation_french_checkout
+
+Targeted Rollouts:
+  - Rollout 1 (priority 0): plan = "enterprise" 
+      → 30% new_checkout, 70% old_checkout (fallback)
+
+Global Rollout:
+  - 10% → variation_new_checkout
+  - 90% → control (old_checkout)
+```
+
+### Evaluation Results
+
+<CardGroup cols={2}>
+  <Card title="User A" icon="user">
+    **Context:** `{ country: "FR", plan: "free" }`
+    
+    **Result:** `variation_french_checkout`
+    
+    **Why:** Matches targeting rule 1 at step 2. Evaluation stops immediately.
+  </Card>
+
+  <Card title="User B" icon="user">
+    **Context:** `{ country: "US", plan: "enterprise" }`
+    
+    **Result:** 30% chance of `new_checkout`, 70% chance of `old_checkout`
+    
+    **Why:** 
+    - No targeting rule match
+    - Matches targeted rollout 1 at step 3
+    - Bucketed based on consistent hash
+  </Card>
+
+  <Card title="User C" icon="user">
+    **Context:** `{ country: "US", plan: "free" }`
+    
+    **Result:** 10% chance of `new_checkout`, 90% chance of `old_checkout`
+    
+    **Why:**
+    - No targeting rule match
+    - No targeted rollout match
+    - Falls through to global rollout at step 4
+  </Card>
+
+  <Card title="User D" icon="user">
+    **Context:** `{ country: "CA" }` (no plan attribute)
+    
+    **Result:** 10% chance of `new_checkout`, 90% chance of `old_checkout`
+    
+    **Why:**
+    - No targeting rule match
+    - No targeted rollout match (missing plan attribute)
+    - Falls through to global rollout at step 4
+  </Card>
+</CardGroup>
+
+---
+
+## Common Patterns
+
+### Pattern 1: Incremental Rollout to Everyone
+
+```yaml
+Strategy: Start small, increase global rollout percentage gradually
+
+Configuration:
+  - No targeting rules
+  - No targeted rollouts
+  - Global rollout: Start at 5%, increase to 25%, 50%, 100%
+
+Use case: Safe, gradual feature rollout to your entire user base
+```
+
+### Pattern 2: Beta Test with Specific Audience, Then Expand
+
+```yaml
+Strategy: Test with power users, then roll out globally
+
+Configuration:
+  - Targeted rollout: plan = "enterprise" → 100%
+  - Global rollout: 10% to everyone else
+
+Use case: Get early feedback from engaged users before broad release
+```
+
+### Pattern 3: Region-Specific Features with Gradual Global Rollout
+
+```yaml
+Strategy: Certain regions get full access, others get gradual rollout
+
+Configuration:
+  - Targeting rule: country IN ["US", "CA", "UK"] → 100% new feature
+  - Global rollout: 20% to everyone else
+
+Use case: Compliance-driven regional features with optional global expansion
+```
+
+---
+
+## Debugging Evaluation
+
+When debugging why a user received a specific variation:
+
+1. **Check kill switch** — Is the flag active?
+2. **Review targeting rules** — Does the user match any rule conditions?
+3. **Check targeted rollouts** — Does the user match any rollout segments?
+4. **Review global rollout** — What's the current percentage?
+5. **Verify user context** — Are all required attributes present?
+
+<Tip>
+  Use the Flagmint dashboard's evaluation debugger to trace exactly how a specific user context was evaluated. This shows each step and why evaluation stopped where it did.
+</Tip>
+
+---
+
+## Related Topics
+
+<CardGroup cols={3}>
+  <Card title="Targeting Rules" icon="crosshairs" href="/concepts/targeting-rules">
+    Learn about creating complex targeting conditions
+  </Card>
+  
+  <Card title="Rollouts" icon="gauge" href="/concepts/rollouts">
+    Understand rollout strategies and best practices
+  </Card>
+  
+  <Card title="Segments" icon="users" href="/concepts/segments">
+    Create reusable user segments for targeting
+  </Card>
+</CardGroup>

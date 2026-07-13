@@ -1,0 +1,493 @@
+---
+title: "Rollouts"
+description: "Gradually release features with global and targeted rollouts"
+---
+
+## Overview
+
+Rollouts let you gradually release a feature to a percentage of your users, reducing risk and enabling data-driven decisions. Flagmint supports two types of rollouts:
+
+<CardGroup cols={2}>
+  <Card title="Global Rollout" icon="globe">
+    Applies to **all users** who didn't match targeting rules or targeted rollouts. Your catch-all percentage split.
+  </Card>
+  
+  <Card title="Targeted Rollouts" icon="crosshairs">
+    Applies to **specific audience segments** first, then percentage splits within that segment.
+  </Card>
+</CardGroup>
+
+---
+
+## Global Rollout
+
+Global rollout is the simplest form of gradual release. It applies a percentage split to **everyone who reaches that step** in the evaluation pipeline.
+
+### How It Works
+
+```yaml
+Flag: new_dashboard
+Global Rollout: 25% → new_dashboard, 75% → old_dashboard
+
+Result:
+- 25% of all traffic sees new_dashboard
+- 75% of all traffic sees old_dashboard
+```
+
+Users are bucketed using **consistent hashing** based on flag ID + user ID, ensuring:
+- Same user always gets same variation
+- Stable, predictable distribution
+- No flip-flopping between variations
+
+### When Global Rollout Applies
+
+<Note>
+**Important:** Global rollout applies to all traffic that **didn't match** targeting rules or targeted rollouts. It does NOT require an empty ruleset to activate.
+</Note>
+
+**Example:**
+```yaml
+Flag: checkout_v2
+Targeting Rule: country = "FR" → french_checkout
+Global Rollout: 10% → checkout_v2
+
+User A (France): Gets french_checkout (targeting rule matched)
+User B (USA): 10% chance of checkout_v2, 90% control (global rollout)
+```
+
+Even though a targeting rule exists, global rollout still evaluates for users who don't match it.
+
+### Use Cases
+
+- **Initial feature validation:** Start at 5%, monitor metrics, increase gradually
+- **Canary deployments:** Test backend changes with 1% of traffic first
+- **Risk mitigation:** Roll out payment/billing changes incrementally
+- **Performance testing:** Gradually increase load on new infrastructure
+
+### Best Practices
+
+<AccordionGroup>
+  <Accordion title="Start Small, Scale Gradually">
+    Begin with 5-10% rollout, monitor for 24-48 hours, then increase incrementally:
+    
+    ```
+    Day 1: 5%   → Monitor error rates, performance
+    Day 3: 25%  → Validate metrics hold at scale
+    Day 5: 50%  → Check for edge cases
+    Day 7: 100% → Full release
+    ```
+  </Accordion>
+
+  <Accordion title="Monitor Both Cohorts">
+    Track metrics for both variations to validate improvement:
+    - Conversion rate: new vs old
+    - Error rates: new vs old
+    - Performance: p95 latency new vs old
+    
+    Don't just monitor the new variation in isolation.
+  </Accordion>
+
+  <Accordion title="Have a Rollback Plan">
+    Know how to quickly revert:
+    1. Set global rollout to 0% (instant rollback)
+    2. Or set flag inactive (returns control variation)
+    3. Monitor for 5-10 minutes to confirm rollback success
+  </Accordion>
+
+  <Accordion title="Consider Time Zones">
+    Schedule rollout increases during business hours in your primary market so you can respond to issues quickly.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Targeted Rollouts
+
+Targeted rollouts combine **audience targeting** with **percentage splits**. Unlike targeting rules (which return a specific variation) or global rollouts (which apply to everyone), targeted rollouts let you gradually roll out to a specific audience segment.
+
+### How They Work
+
+A targeted rollout has four components:
+
+1. **Audience Definition:** Who is eligible (segment or inline conditions)
+2. **Percentage Split:** What % gets rollout variation vs fallback variation
+3. **Priority:** Evaluation order if multiple targeted rollouts exist
+4. **Name & Description:** Human-readable labels
+
+**Example:**
+```yaml
+Targeted Rollout: "Enterprise Beta"
+Audience: plan = "enterprise"
+Percentage: 30% → new_feature, 70% → old_feature (fallback)
+
+Result:
+- 30% of enterprise users get new_feature
+- 70% of enterprise users get old_feature
+- All non-enterprise users skip this rollout (evaluated by global rollout)
+```
+
+### Segment vs Inline Conditions
+
+Define your audience in two ways:
+
+<Tabs>
+  <Tab title="Existing Segment">
+    **Use a segment from your library**
+    
+    - Select from reusable segments
+    - Changes to segment automatically apply
+    - Best for common audiences ("Enterprise customers", "Beta users")
+    
+    ```yaml
+    Audience: [Segment: "Enterprise Customers"]
+    ```
+  </Tab>
+  
+  <Tab title="Inline Conditions">
+    **Define conditions directly**
+    
+    - Self-contained, no dependencies
+    - Can be converted to a segment later
+    - Best for one-off or experimental targeting
+    
+    ```yaml
+    Audience: plan = "enterprise" AND country IN ["US", "CA"]
+    ```
+    
+    <Tip>
+      Click "Convert to Segment" to promote inline conditions to a reusable segment.
+    </Tip>
+  </Tab>
+</Tabs>
+
+### Percentage Split
+
+The percentage determines what portion of **matching users** get the rollout variation vs fallback variation.
+
+**Key principle:** Percentage only applies to users who match the audience conditions. Users outside the segment aren't counted.
+
+**Example:**
+```yaml
+Targeted Rollout: plan = "pro" → 20%
+
+Total users: 10,000
+- 1,000 users have plan = "pro"
+  → 200 get rollout variation (20% of 1,000)
+  → 800 get fallback variation (80% of 1,000)
+- 9,000 users don't have plan = "pro"
+  → Skip this rollout entirely, continue to global rollout
+```
+
+### Priority & Evaluation Order
+
+If multiple targeted rollouts exist on a flag, they're evaluated in **priority order** (lowest number first). The first matching rollout wins and stops evaluation.
+
+**Example:**
+```yaml
+Priority 0: plan = "enterprise" → 50% new_feature
+Priority 1: country = "US" → 10% new_feature
+
+User: { plan: "enterprise", country: "US" }
+→ Matches Priority 0 → 50% chance of new_feature
+→ Priority 1 is never evaluated
+```
+
+Use priority to create hierarchical targeting:
+- Lower priority = more specific audiences (e.g., enterprise + beta tester)
+- Higher priority = broader audiences (e.g., all US users)
+
+### Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Gradual Enterprise Rollout" icon="building">
+    "Enable new dashboard for 25% of enterprise customers"
+    
+    Validate with high-value users before broader release.
+  </Card>
+  
+  <Card title="Regional Beta Testing" icon="map">
+    "Roll out mobile redesign to 50% of users in US/CA"
+    
+    Test in specific markets before global launch.
+  </Card>
+  
+  <Card title="Plan-Based Feature Gating" icon="star">
+    "Give 10% of pro users early access to AI features"
+    
+    Reward premium users with beta access.
+  </Card>
+  
+  <Card title="Risky Changes" icon="shield">
+    "Test new payment flow with 5% of high-value customers"
+    
+    Validate critical paths with engaged users first.
+  </Card>
+</CardGroup>
+
+---
+
+## Interaction with the Evaluation Pipeline
+
+Rollouts fit into Flagmint's overall flag evaluation order:
+
+<Steps>
+  <Step title="Kill Switch">
+    Flag inactive → return control variation
+  </Step>
+  
+  <Step title="Targeting Rules">
+    Explicit assignments (e.g., all French users get variation A)
+  </Step>
+  
+  <Step title="Targeted Rollouts">
+    Percentage splits for specific audiences
+  </Step>
+  
+  <Step title="Global Rollout">
+    Percentage split for **everyone who didn't match above**
+  </Step>
+  
+  <Step title="Default Variation">
+    Final fallback
+  </Step>
+</Steps>
+
+**Key insight:** Global rollout is a catch-all for unmatched traffic, not a "default when no rules exist" fallback.
+
+**Example:**
+```yaml
+Flag: new_checkout
+Targeting Rule: country = "FR" → french_checkout
+Targeted Rollout: plan = "enterprise" → 30% new_checkout
+Global Rollout: 10% → new_checkout
+
+User A: { country: "FR", plan: "free" }
+→ Targeting rule matches → french_checkout
+
+User B: { country: "US", plan: "enterprise" }
+→ No targeting match
+→ Targeted rollout matches → 30% chance new_checkout
+
+User C: { country: "US", plan: "free" }
+→ No targeting match
+→ No targeted rollout match
+→ Global rollout applies → 10% chance new_checkout
+```
+
+<Tip>
+  See [Evaluation Logic](/getting-started/evaluation-logic) for a detailed walkthrough of the full evaluation pipeline.
+</Tip>
+
+---
+
+## Common Patterns
+
+### Pattern 1: Incremental Rollout to Everyone
+
+```yaml
+Strategy: Simple, gradual rollout to entire user base
+
+Configuration:
+  - No targeting rules
+  - No targeted rollouts
+  - Global rollout: 5% → 25% → 50% → 100%
+
+Timeline:
+  Day 1: 5%   (monitor metrics)
+  Day 3: 25%  (validate at scale)
+  Day 5: 50%  (check edge cases)
+  Day 7: 100% (full release)
+
+Use case: Low-risk UI changes, new dashboard layouts
+```
+
+### Pattern 2: Beta Test with Power Users, Then Expand
+
+```yaml
+Strategy: Test with engaged users first, then roll out broadly
+
+Configuration:
+  - Targeted rollout: plan = "enterprise" → 100%
+  - Global rollout: 10% → everyone else
+
+Timeline:
+  Week 1: Enterprise users get 100% (collect feedback)
+  Week 2: Increase global rollout to 25%
+  Week 3: Increase global rollout to 100%
+
+Use case: New features requiring user feedback, UX experiments
+```
+
+### Pattern 3: Regional Launch with Gradual Global Expansion
+
+```yaml
+Strategy: Full release in specific regions, gradual elsewhere
+
+Configuration:
+  - Targeting rule: country IN ["US", "CA", "UK"] → 100% new
+  - Global rollout: 20% → other countries
+
+Timeline:
+  Month 1: US/CA/UK get 100% (primary markets)
+  Month 2: Increase global rollout to 50%
+  Month 3: Full global release
+
+Use case: Compliance-driven regional features, localized features
+```
+
+### Pattern 4: Layered Targeted Rollouts
+
+```yaml
+Strategy: Different rollout speeds for different customer tiers
+
+Configuration:
+  Priority 0: plan = "enterprise" → 50%
+  Priority 1: plan = "pro" → 25%
+  Priority 2: plan = "free" → 5%
+
+Timeline:
+  Week 1: Enterprise 50%, Pro 25%, Free 5%
+  Week 2: Enterprise 100%, Pro 50%, Free 10%
+  Week 3: Full release to all tiers
+
+Use case: Risky features where enterprise users provide best feedback
+```
+
+---
+
+## Best Practices
+
+### Start Small, Scale Gradually
+
+Don't jump straight to 50% or 100%. Start with 5-10% to catch issues early with minimal impact.
+
+```
+❌ Bad: 0% → 100% (all-or-nothing)
+✅ Good: 5% → 10% → 25% → 50% → 100%
+```
+
+### Use Segments for Reusable Audiences
+
+If you're targeting the same audience across multiple flags, create a segment once and reuse it.
+
+```
+❌ Bad: Create inline condition "plan = enterprise" on 10 flags
+✅ Good: Create segment "Enterprise Customers", use on all flags
+```
+
+Changes to the segment automatically apply to all flags using it.
+
+### Monitor Both Cohorts
+
+Don't just monitor the new variation. Track both cohorts to validate improvement:
+
+```yaml
+Metrics to track:
+  Rollout variation:
+    - Conversion rate
+    - Error rate
+    - p95 latency
+  
+  Fallback/control variation:
+    - Conversion rate (baseline)
+    - Error rate (baseline)
+    - p95 latency (baseline)
+```
+
+### Layer Targeted Rollouts for Granular Control
+
+Combine multiple targeted rollouts for complex scenarios:
+
+```yaml
+Priority 0: plan = "enterprise" + country = "US" → 50%
+Priority 1: plan = "enterprise" → 25%
+Priority 2: plan = "pro" → 10%
+Global rollout: 5%
+```
+
+This gives you fine-grained control over different audience segments.
+
+### Clean Up After Full Rollout
+
+Once a targeted rollout reaches 100% and you're confident in the feature:
+
+1. **Option A:** Convert to a targeting rule (simplifies configuration)
+2. **Option B:** Remove the targeted rollout, adjust default variation
+3. **Option C:** Archive the flag entirely if no longer needed
+
+Don't leave 100% rollouts running indefinitely — they add unnecessary complexity.
+
+---
+
+## Debugging Rollout Issues
+
+<AccordionGroup>
+  <Accordion title="User Not Seeing New Variation">
+    Check in order:
+    1. Is the flag active? (Kill switch check)
+    2. Does user match a targeting rule? (Might be returning before rollout)
+    3. Does user match the targeted rollout conditions?
+    4. What's the rollout percentage? (User might be in the fallback cohort)
+    5. Is global rollout percentage > 0?
+    
+    Use the evaluation debugger in the Flagmint dashboard to trace the exact path.
+  </Accordion>
+
+  <Accordion title="User Flip-Flopping Between Variations">
+    This shouldn't happen with proper consistent hashing. Potential causes:
+    - User ID is changing between requests (check context passing)
+    - Multiple flags with same ID (check for duplicates)
+    - Cache inconsistency (check cache invalidation)
+    
+    Verify the same user ID is being passed on every evaluation.
+  </Accordion>
+
+  <Accordion title="Rollout Percentage Doesn't Match Expected Distribution">
+    Consistent hashing provides statistical distribution, not exact percentages. Expect:
+    - 10% rollout → 8-12% actual distribution (acceptable variance)
+    - Larger sample sizes → closer to target percentage
+    - Smaller sample sizes → more variance
+    
+    If variance is > ±5%, check bucketing logic.
+  </Accordion>
+
+  <Accordion title="Targeted Rollout Not Applying">
+    Check:
+    1. Is the targeted rollout active?
+    2. Does the segment or inline condition match?
+    3. Is there a higher-priority targeting rule catching traffic first?
+    4. Is the segment referenced by the rollout deleted?
+    
+    Review the evaluation order and priority settings.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Related Topics
+
+<CardGroup cols={3}>
+  <Card title="Evaluation Logic" icon="sitemap" href="/getting-started/evaluation-logic">
+    Full evaluation pipeline and order of operations
+  </Card>
+  
+  <Card title="Targeting Rules" icon="crosshairs" href="/concepts/targeting-rules">
+    Explicit variation assignments based on conditions
+  </Card>
+  
+  <Card title="Segments" icon="users" href="/concepts/segments">
+    Create reusable audience definitions
+  </Card>
+  
+  <Card title="Attributes" icon="tag" href="/concepts/attributes">
+    Define user context for targeting and rollouts
+  </Card>
+  
+  <Card title="Best Practices" icon="star" href="/resources/best-practices">
+    Production-ready flag management strategies
+  </Card>
+  
+  <Card title="Troubleshooting" icon="wrench" href="/resources/troubleshooting">
+    Debug common evaluation issues
+  </Card>
+</CardGroup>

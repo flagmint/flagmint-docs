@@ -1,0 +1,773 @@
+---
+title: "Webhooks"
+description: "Receive real-time HTTP notifications when events occur in Flagmint"
+---
+
+## Overview
+
+Webhooks allow you to receive real-time HTTP notifications when events occur in Flagmint. Use webhooks to integrate with external tools like Slack, PagerDuty, DataDog, or custom monitoring systems.
+
+When an event occurs, Flagmint sends an HTTP POST request to your configured endpoint with a JSON payload containing event details.
+
+---
+
+## Available Events
+
+Subscribe to the following events to stay informed about changes in your feature flags and platform activity:
+
+### Flag Events
+
+<ParamField path="flag.toggled" type="event">
+  Triggered when a flag is activated or deactivated via the kill switch.
+  
+  **Use cases:** Alert team in Slack when production flags are toggled, log flag state changes for audit trail
+</ParamField>
+
+<ParamField path="flag.updated" type="event">
+  Triggered when flag configuration changes (variations, targeting rules, rollouts).
+  
+  **Use cases:** Notify developers of configuration changes, trigger CI/CD pipelines, update documentation
+</ParamField>
+
+<ParamField path="flag.archived" type="event">
+  Triggered when a flag is archived or permanently deleted.
+  
+  **Use cases:** Clean up references in monitoring tools, update technical debt tracking
+</ParamField>
+
+### Rollout Events
+
+<ParamField path="rollout.milestone_reached" type="event">
+  Triggered when a rollout percentage crosses a significant threshold (25%, 50%, 75%, 100%).
+  
+  **Use cases:** Automated monitoring alerts, progressive rollout notifications, stakeholder updates
+</ParamField>
+
+### Operational Events
+
+<ParamField path="quota.warning" type="event">
+  Triggered when API call quota reaches critical thresholds (80%, 90%, 100%).
+  
+  **Use cases:** Proactive alerts before hitting limits, capacity planning notifications
+</ParamField>
+
+<ParamField path="segment.updated" type="event">
+  Triggered when segment conditions or membership rules are modified.
+  
+  **Use cases:** Alert when shared segments change, track targeting rule dependencies
+</ParamField>
+
+---
+
+## Creating a Webhook
+
+<Steps>
+  <Step title="Navigate to Webhooks">
+    Go to **Settings → Webhooks** in your Flagmint dashboard.
+  </Step>
+
+  <Step title="Create New Webhook">
+    Click **"Create Webhook"** and provide:
+    - **Name:** Descriptive label (e.g., "Slack Production Alerts")
+    - **Destination URL:** HTTPS endpoint to receive events (HTTP not supported for security)
+    - **Events:** Select which event types to subscribe to
+  </Step>
+
+  <Step title="Save and Copy Secret">
+    Click **"Create"** and immediately copy the **webhook secret**.
+    
+    <Warning>
+      The webhook secret is only shown once. Store it securely — you'll need it to verify webhook signatures.
+    </Warning>
+  </Step>
+
+  <Step title="Test the Webhook">
+    Use the "Send Test Event" button to verify your endpoint receives and processes webhooks correctly.
+  </Step>
+</Steps>
+
+---
+
+## Webhook Payload Structure
+
+All webhook events follow this JSON structure:
+
+```json
+{
+  "id": "evt_1a2b3c4d5e6f",
+  "type": "flag.toggled",
+  "created_at": "2026-04-08T14:32:10Z",
+  "data": {
+    "flag_id": "flag_xyz789",
+    "flag_key": "new_checkout_flow",
+    "environment": "production",
+    "project_id": "proj_abc123",
+    "is_active": false,
+    "changed_by": {
+      "user_id": "user_123",
+      "email": "engineer@company.com",
+      "name": "Jane Developer"
+    }
+  },
+  "organization_id": "org_456"
+}
+```
+
+### Common Fields
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for this event. Use as an idempotency key to avoid processing duplicates.
+</ResponseField>
+
+<ResponseField name="type" type="string" required>
+  Event type (e.g., `flag.toggled`, `rollout.milestone_reached`).
+</ResponseField>
+
+<ResponseField name="created_at" type="timestamp" required>
+  ISO 8601 timestamp when the event occurred.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  Event-specific payload. Structure varies by event type.
+</ResponseField>
+
+<ResponseField name="organization_id" type="string" required>
+  Organization where the event occurred.
+</ResponseField>
+
+### Event-Specific Payloads
+
+<AccordionGroup>
+  <Accordion title="flag.toggled">
+    ```json
+    {
+      "flag_id": "flag_xyz789",
+      "flag_key": "new_checkout_flow",
+      "environment": "production",
+      "project_id": "proj_abc123",
+      "is_active": false,
+      "previous_state": true,
+      "changed_by": {
+        "user_id": "user_123",
+        "email": "engineer@company.com",
+        "name": "Jane Developer"
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="flag.updated">
+    ```json
+    {
+      "flag_id": "flag_xyz789",
+      "flag_key": "new_checkout_flow",
+      "environment": "production",
+      "project_id": "proj_abc123",
+      "changes": {
+        "targeting_rules": "modified",
+        "global_rollout": "updated",
+        "variations": "unchanged"
+      },
+      "changed_by": {
+        "user_id": "user_123",
+        "email": "engineer@company.com",
+        "name": "Jane Developer"
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="rollout.milestone_reached">
+    ```json
+    {
+      "flag_id": "flag_xyz789",
+      "flag_key": "new_checkout_flow",
+      "environment": "production",
+      "project_id": "proj_abc123",
+      "rollout_type": "global",
+      "milestone": 50,
+      "previous_percentage": 45,
+      "current_percentage": 50,
+      "reached_at": "2026-04-08T14:32:10Z"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="quota.warning">
+    ```json
+    {
+      "quota_type": "api_evaluations",
+      "threshold": 90,
+      "current_usage": 90000,
+      "quota_limit": 100000,
+      "percentage_used": 90,
+      "reset_at": "2026-05-01T00:00:00Z",
+      "project_id": "proj_abc123"
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="segment.updated">
+    ```json
+    {
+      "segment_id": "seg_abc456",
+      "segment_name": "Enterprise Customers",
+      "project_id": "proj_abc123",
+      "changes": {
+        "conditions": "modified",
+        "affected_flags": ["flag_xyz789", "flag_abc123"]
+      },
+      "changed_by": {
+        "user_id": "user_123",
+        "email": "engineer@company.com",
+        "name": "Jane Developer"
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Verifying Webhook Signatures
+
+<Warning>
+  **Security Critical:** Always verify webhook signatures before processing events. This prevents malicious actors from spoofing webhook requests.
+</Warning>
+
+All webhook requests include an `X-Flagmint-Signature` header containing an HMAC-SHA256 signature of the request body.
+
+### Verification Process
+
+1. Extract the raw request body (as a string, before parsing JSON)
+2. Compute HMAC-SHA256 hash using your webhook secret
+3. Compare computed signature with the `X-Flagmint-Signature` header
+4. Reject the request if signatures don't match
+
+### Implementation Examples
+
+<CodeGroup>
+
+```javascript Node.js (Express)
+const crypto = require('crypto');
+
+function verifyWebhookSignature(payload, signature, secret) {
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(payload)
+    .digest('hex');
+  
+  return signature === `sha256=${expectedSignature}`;
+}
+
+app.post('/webhooks/flagmint', express.raw({ type: 'application/json' }), (req, res) => {
+  const signature = req.headers['x-flagmint-signature'];
+  const payload = req.body.toString(); // Raw body as string
+  
+  if (!verifyWebhookSignature(payload, signature, process.env.WEBHOOK_SECRET)) {
+    console.error('Invalid webhook signature');
+    return res.status(401).send('Unauthorized');
+  }
+  
+  const event = JSON.parse(payload);
+  
+  // Process webhook event...
+  console.log('Received event:', event.type, event.id);
+  
+  // Respond quickly (process asynchronously)
+  res.status(200).send('OK');
+  
+  // Process in background
+  handleWebhookEvent(event);
+});
+```
+
+```python Python (Flask)
+import hmac
+import hashlib
+from flask import Flask, request, abort
+
+app = Flask(__name__)
+
+def verify_webhook_signature(payload, signature, secret):
+    expected_signature = 'sha256=' + hmac.new(
+        secret.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    return hmac.compare_digest(signature, expected_signature)
+
+@app.route('/webhooks/flagmint', methods=['POST'])
+def handle_webhook():
+    signature = request.headers.get('X-Flagmint-Signature')
+    payload = request.data.decode('utf-8')
+    
+    if not verify_webhook_signature(payload, signature, WEBHOOK_SECRET):
+        abort(401, 'Invalid signature')
+    
+    event = request.json
+    
+    # Process webhook event...
+    print(f"Received event: {event['type']} - {event['id']}")
+    
+    # Respond quickly
+    return 'OK', 200
+```
+
+```go Go
+package main
+
+import (
+    "crypto/hmac"
+    "crypto/sha256"
+    "encoding/hex"
+    "encoding/json"
+    "fmt"
+    "io/ioutil"
+    "net/http"
+    "strings"
+)
+
+func verifyWebhookSignature(payload []byte, signature, secret string) bool {
+    mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write(payload)
+    expectedSignature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+    return hmac.Equal([]byte(signature), []byte(expectedSignature))
+}
+
+func handleWebhook(w http.ResponseWriter, r *http.Request) {
+    signature := r.Header.Get("X-Flagmint-Signature")
+    payload, _ := ioutil.ReadAll(r.Body)
+    
+    if !verifyWebhookSignature(payload, signature, webhookSecret) {
+        http.Error(w, "Invalid signature", http.StatusUnauthorized)
+        return
+    }
+    
+    var event map[string]interface{}
+    json.Unmarshal(payload, &event)
+    
+    fmt.Printf("Received event: %s - %s\n", event["type"], event["id"])
+    
+    w.WriteHeader(http.StatusOK)
+    w.Write([]byte("OK"))
+}
+```
+
+```ruby Ruby (Sinatra)
+require 'sinatra'
+require 'openssl'
+require 'json'
+
+def verify_webhook_signature(payload, signature, secret)
+  expected_signature = 'sha256=' + OpenSSL::HMAC.hexdigest(
+    OpenSSL::Digest.new('sha256'),
+    secret,
+    payload
+  )
+  
+  Rack::Utils.secure_compare(signature, expected_signature)
+end
+
+post '/webhooks/flagmint' do
+  request.body.rewind
+  payload = request.body.read
+  signature = request.env['HTTP_X_FLAGMINT_SIGNATURE']
+  
+  halt 401, 'Invalid signature' unless verify_webhook_signature(
+    payload, 
+    signature, 
+    ENV['WEBHOOK_SECRET']
+  )
+  
+  event = JSON.parse(payload)
+  
+  puts "Received event: #{event['type']} - #{event['id']}"
+  
+  status 200
+  body 'OK'
+end
+```
+
+</CodeGroup>
+
+---
+
+## Retry Behavior
+
+If your endpoint fails to respond with a `2xx` status code, Flagmint automatically retries delivery using an exponential backoff strategy:
+
+<Steps>
+  <Step title="Attempt 1">
+    Immediate delivery
+  </Step>
+  <Step title="Attempt 2">
+    1 second after first failure
+  </Step>
+  <Step title="Attempt 3">
+    5 seconds after second failure
+  </Step>
+  <Step title="Attempt 4">
+    30 seconds after third failure
+  </Step>
+  <Step title="Attempt 5">
+    5 minutes after fourth failure
+  </Step>
+</Steps>
+
+<Note>
+  After 5 failed attempts, the delivery is marked as **exhausted** and no further automatic retries occur.
+</Note>
+
+### Viewing Delivery Logs
+
+Navigate to **Settings → Webhooks → [Webhook Name]** to view:
+- Delivery history with timestamps
+- Success/failure status for each attempt
+- Response codes and error messages
+- Full request and response payloads
+
+### Manual Retry
+
+Click **"Retry"** next to any failed delivery to manually trigger a new attempt.
+
+---
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Respond Quickly">
+    **Goal:** Return `200 OK` within 2-3 seconds
+    
+    Your webhook endpoint should:
+    1. Verify the signature
+    2. Store the event in a queue (Redis, SQS, RabbitMQ)
+    3. Return `200 OK` immediately
+    4. Process the event asynchronously in a background worker
+    
+    **Don't** perform expensive operations (database writes, external API calls, email sending) before responding.
+    
+    ```javascript
+    // ✅ Good: Queue for async processing
+    app.post('/webhook', async (req, res) => {
+      if (!verifySignature(req)) return res.status(401).send('Unauthorized');
+      
+      await queue.add('webhook-event', req.body); // Fast queue write
+      res.status(200).send('OK');
+    });
+    
+    // ❌ Bad: Slow processing blocks response
+    app.post('/webhook', async (req, res) => {
+      if (!verifySignature(req)) return res.status(401).send('Unauthorized');
+      
+      await sendSlackMessage(req.body); // Slow external API call
+      await updateDatabase(req.body);    // Slow database write
+      res.status(200).send('OK');        // Too late!
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Handle Duplicates (Idempotency)">
+    **Why:** Network issues or retries may cause duplicate deliveries
+    
+    Use the `event.id` field as an idempotency key:
+    
+    ```javascript
+    async function handleWebhook(event) {
+      // Check if we've already processed this event
+      const exists = await redis.get(`webhook:${event.id}`);
+      if (exists) {
+        console.log('Duplicate webhook, skipping:', event.id);
+        return;
+      }
+      
+      // Mark as processed (expire after 7 days)
+      await redis.setex(`webhook:${event.id}`, 604800, 'processed');
+      
+      // Process the event
+      await processEvent(event);
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Verify Signatures Always">
+    **Critical:** Unverified webhooks expose you to spoofing attacks
+    
+    ```javascript
+    // ❌ NEVER do this
+    app.post('/webhook', (req, res) => {
+      // No signature verification!
+      processEvent(req.body);
+      res.send('OK');
+    });
+    
+    // ✅ Always verify first
+    app.post('/webhook', (req, res) => {
+      if (!verifyWebhookSignature(req.body, req.headers['x-flagmint-signature'], SECRET)) {
+        return res.status(401).send('Unauthorized');
+      }
+      processEvent(req.body);
+      res.send('OK');
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Monitor Webhook Health">
+    Set up alerts for:
+    - **Consecutive failures** (3+ failed deliveries in a row)
+    - **High failure rate** (>10% of deliveries failing)
+    - **Slow responses** (endpoint taking >2 seconds to respond)
+    - **Signature errors** (invalid signatures may indicate configuration drift)
+    
+    Check the webhook delivery logs weekly to catch issues early.
+  </Accordion>
+
+  <Accordion title="Use HTTPS Only">
+    Flagmint requires HTTPS endpoints for security. HTTP webhooks will be rejected.
+    
+    For local development, use tools like:
+    - [ngrok](https://ngrok.com/) - Tunnel local server to HTTPS URL
+    - [localtunnel](https://localtunnel.github.io/) - Alternative tunneling service
+    - [Hookdeck](https://hookdeck.com/) - Webhook debugging and testing
+  </Accordion>
+
+  <Accordion title="Filter Events Appropriately">
+    Only subscribe to events you actually need. Unnecessary webhooks:
+    - Waste server resources
+    - Increase noise in logs
+    - Risk hitting rate limits on downstream services (Slack, PagerDuty)
+    
+    **Example:** If you only care about production flag toggles, don't subscribe to `flag.updated` or development environment events.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Common Use Cases
+
+### Slack Notifications
+
+Send alerts to Slack when production flags are toggled:
+
+```javascript
+async function handleFlagToggled(event) {
+  if (event.data.environment !== 'production') return;
+  
+  const message = {
+    text: `🚩 Flag ${event.data.flag_key} ${event.data.is_active ? 'enabled' : 'disabled'} in production`,
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Flag Toggled*\n\n` +
+                `Flag: \`${event.data.flag_key}\`\n` +
+                `Status: ${event.data.is_active ? '✅ Active' : '❌ Inactive'}\n` +
+                `Environment: ${event.data.environment}\n` +
+                `Changed by: ${event.data.changed_by.name}`
+        }
+      }
+    ]
+  };
+  
+  await fetch(process.env.SLACK_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(message)
+  });
+}
+```
+
+### PagerDuty Alerts
+
+Trigger incidents when quota warnings occur:
+
+```javascript
+async function handleQuotaWarning(event) {
+  if (event.data.threshold < 90) return; // Only alert on 90%+ usage
+  
+  const incident = {
+    routing_key: process.env.PAGERDUTY_INTEGRATION_KEY,
+    event_action: 'trigger',
+    payload: {
+      summary: `API quota at ${event.data.percentage_used}% for ${event.data.project_id}`,
+      severity: event.data.threshold >= 95 ? 'critical' : 'warning',
+      source: 'Flagmint',
+      custom_details: {
+        quota_type: event.data.quota_type,
+        current_usage: event.data.current_usage,
+        quota_limit: event.data.quota_limit,
+        reset_at: event.data.reset_at
+      }
+    }
+  };
+  
+  await fetch('https://events.pagerduty.com/v2/enqueue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(incident)
+  });
+}
+```
+
+### DataDog Metrics
+
+Send rollout milestone events to DataDog:
+
+```javascript
+async function handleRolloutMilestone(event) {
+  const metric = {
+    series: [{
+      metric: 'flagmint.rollout.milestone',
+      points: [[Date.now() / 1000, event.data.milestone]],
+      type: 'gauge',
+      tags: [
+        `flag:${event.data.flag_key}`,
+        `environment:${event.data.environment}`,
+        `milestone:${event.data.milestone}`
+      ]
+    }]
+  };
+  
+  await fetch('https://api.datadoghq.com/api/v1/series', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'DD-API-KEY': process.env.DATADOG_API_KEY
+    },
+    body: JSON.stringify(metric)
+  });
+}
+```
+
+### Audit Log
+
+Store webhook events in your database for compliance:
+
+```javascript
+async function storeAuditLog(event) {
+  await db.auditLogs.insert({
+    event_id: event.id,
+    event_type: event.type,
+    timestamp: event.created_at,
+    organization_id: event.organization_id,
+    data: event.data,
+    created_at: new Date()
+  });
+}
+```
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Webhooks Not Being Delivered">
+    **Check:**
+    1. Is the webhook active? (Check Settings → Webhooks)
+    2. Is the destination URL correct and reachable?
+    3. Is your endpoint returning 2xx status codes?
+    4. Are you subscribed to the right event types?
+    5. Check firewall/security group rules (allow Flagmint IPs)
+    
+    **Test:** Use the "Send Test Event" button to verify connectivity.
+  </Accordion>
+
+  <Accordion title="Signature Verification Fails">
+    **Common causes:**
+    - Using wrong webhook secret (check Settings → Webhooks)
+    - Request body modified before verification (use raw body)
+    - Character encoding issues (ensure UTF-8)
+    - Parsing JSON before verification (verify raw string first)
+    
+    **Debug:** Log both signatures and compare character-by-character.
+  </Accordion>
+
+  <Accordion title="Webhook Deliveries Timing Out">
+    **Problem:** Your endpoint takes >30 seconds to respond
+    
+    **Solution:** Process asynchronously
+    ```javascript
+    // ❌ Slow synchronous processing
+    app.post('/webhook', async (req, res) => {
+      await processEvent(req.body); // Takes 45 seconds
+      res.send('OK'); // Timeout!
+    });
+    
+    // ✅ Fast async processing
+    app.post('/webhook', async (req, res) => {
+      await queue.add(req.body); // <100ms
+      res.send('OK'); // Fast response
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="Duplicate Events Being Processed">
+    **Problem:** Same event processed multiple times
+    
+    **Solution:** Implement idempotency checks using `event.id`
+    ```javascript
+    const processedEvents = new Set();
+    
+    function handleWebhook(event) {
+      if (processedEvents.has(event.id)) {
+        return; // Already processed
+      }
+      processedEvents.add(event.id);
+      processEvent(event);
+    }
+    ```
+    
+    Use Redis or your database for persistent tracking.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Rate Limits
+
+Webhook deliveries are subject to the following limits:
+
+- **Maximum concurrent deliveries per webhook:** 5
+- **Maximum retries per event:** 5 attempts
+- **Timeout:** 30 seconds per delivery attempt
+- **Maximum payload size:** 1 MB
+
+<Note>
+  These limits ensure fair resource allocation and prevent webhook endpoints from being overwhelmed. Contact support if you need higher limits.
+</Note>
+
+---
+
+## Security Considerations
+
+<Warning>
+  Webhooks expose your internal systems to external requests. Follow these security best practices:
+</Warning>
+
+1. **Always verify signatures** - Never process unverified webhook data
+2. **Use HTTPS only** - Flagmint enforces HTTPS for all webhook endpoints
+3. **Sanitize inputs** - Don't trust webhook data blindly, validate before database writes
+4. **Rate limit your endpoint** - Protect against potential abuse or bugs
+5. **Rotate secrets periodically** - Update webhook secrets every 90 days
+6. **Log security events** - Track signature failures and suspicious patterns
+7. **Restrict endpoint access** - Use IP allowlisting if possible (contact support for Flagmint IPs)
+
+---
+
+## Related Topics
+
+<CardGroup cols={3}>
+  <Card title="API Authentication" icon="key" href="/api-reference/authentication">
+    Learn about API keys and authentication
+  </Card>
+  
+  <Card title="Audit Logs" icon="clipboard-list" href="/api-reference/audit/list-audit-logs">
+    View all changes via audit log API
+  </Card>
+  
+  <Card title="Flags API" icon="flag" href="/api-reference/flags/get-projects-flags">
+    Manage flags programmatically
+  </Card>
+</CardGroup>

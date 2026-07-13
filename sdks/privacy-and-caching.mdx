@@ -1,0 +1,90 @@
+---
+title: "SDK Privacy and Caching Configuration"
+description: "Control local storage behavior with enableOfflineCache and persistContext to align SDK initialization with privacy and consent requirements."
+---
+
+# SDK Privacy and Caching Configuration
+
+By default, the Flagmint Client SDK initializes with local caching and context persistence enabled. This architecture is designed to reduce network latency, prevent UI flicker during flag evaluation, and provide an offline fallback.
+
+Because these features may use browser local storage (`localStorage`), enabling them can carry compliance obligations under frameworks such as the EU ePrivacy Directive and UK PECR, and may interact with GDPR requirements depending on how context data is defined.
+
+This guide explains how to control the SDK storage footprint so engineering implementation matches your privacy policy and user consent choices.
+
+<Note>
+  This page provides technical implementation guidance, not legal advice. Confirm your final configuration with your legal or compliance team.
+</Note>
+
+## Privacy Parameters Reference
+
+When creating a Flagmint client, you can pass two privacy-sensitive options:
+
+| Parameter | Type | Default | Technical Behavior | Common Compliance Relevance |
+|---|---|---|---|---|
+| `enableOfflineCache` | `boolean` | `true` | Caches evaluated flag states in `localStorage` for faster subsequent loads. | ePrivacy Directive / PECR |
+| `persistContext` | `boolean` | `true` | Persists user context and targeting attributes across browser sessions. | GDPR and ePrivacy / PECR |
+
+## Code Implementation Examples
+
+### 1) Default Optimization (Recommended)
+
+Use this when feature flags are used for core application behavior such as feature gating, progressive rollout, or reliability controls.
+
+```ts
+import { FlagmintClient } from '@flagmint/sdk-browser';
+
+const flagmint = new FlagmintClient({
+  apiKey: 'your-client-sdk-key',
+  enableOfflineCache: true, // Uses localStorage to improve load performance
+  persistContext: true      // Preserves targeting context across sessions
+});
+```
+
+### 2) Strict Privacy Mode (No Local Storage)
+
+Use this when local storage is not permitted by user choice or policy (for example, after a rejected consent decision for non-essential processing).
+
+Setting both values to `false` keeps operation in memory only, with no SDK writes to browser storage.
+
+```ts
+import { FlagmintClient } from '@flagmint/sdk-browser';
+
+const flagmint = new FlagmintClient({
+  apiKey: 'your-client-sdk-key',
+  enableOfflineCache: false, // In-memory evaluation only
+  persistContext: false      // Context is not persisted across reloads
+});
+```
+
+## Integrating with Cookie Banners (CMPs)
+
+If you use a Consent Management Platform (for example Cookiebot, OneTrust, or a custom consent banner), initialize the SDK from the user consent result.
+
+```ts
+import { FlagmintClient } from '@flagmint/sdk-browser';
+
+// Replace with your CMP-specific consent check.
+const userHasConsentedToTracking = checkYourCMPConsent();
+
+const flagmint = new FlagmintClient({
+  apiKey: 'your-client-sdk-key',
+  enableOfflineCache: userHasConsentedToTracking,
+  persistContext: userHasConsentedToTracking
+});
+```
+
+## Technical Disclosure for Legal and Compliance Teams
+
+If your legal or compliance team needs implementation details for policy or consent banner disclosures, use the mapping below:
+
+- **Technology used:** Browser Local Storage (`localStorage`)
+- **Keys written:** `flagmint_ff_[apiKey]_flags` and `flagmint_ff_[apiKey]_context`
+- **Purpose:** Performance optimization, reduced network overhead, and cross-session targeting continuity
+- **Data stored:** Evaluated flag values (for example booleans or strings) and targeting context attributes configured by your integration
+- **Third-party tracking:** The SDK does not create cross-site third-party tracking identifiers through these storage keys
+
+## Recommended Operational Pattern
+
+- Default to `enableOfflineCache: false` and `persistContext: false` until user consent state is known
+- Reinitialize with storage enabled only if your policy permits and consent has been granted
+- Keep context payloads minimal to reduce privacy exposure and simplify disclosures
