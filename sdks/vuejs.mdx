@@ -87,6 +87,10 @@ Vue.use(createFlagmintPlugin({
 new Vue({ render: h => h(App) }).$mount('#app');
 ```
 
+<Note>
+  Need to configure `enableOfflineCache` and `persistContext` for consent or policy requirements? See [SDK Privacy and Caching Configuration](/sdks/privacy-and-caching).
+</Note>
+
 ## Configuration Options
 
 The `createFlagmintPlugin` accepts a `FlagClientOptions` object:

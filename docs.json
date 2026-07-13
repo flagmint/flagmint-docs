@@ -98,7 +98,7 @@
         "groups": [
           {
             "group": "Client-Side SDKs",
-            "pages": ["sdks/react", "sdks/vuejs"]
+            "pages": ["sdks/react", "sdks/vuejs", "sdks/privacy-and-caching"]
           },
           {
             "group": "Server-Side SDKs",
