@@ -102,7 +102,7 @@
           },
           {
             "group": "Server-Side SDKs",
-            "pages": ["sdks/nodejs"]
+            "pages": ["sdks/nodejs", "sdks/go"]
           },
           {
             "group": "Direct Integration",
