@@ -202,7 +202,7 @@ Named stream events:
 | `connected` | `{ "connectionId": "<uuid>" }` | First frame. Store `connectionId` for context updates. |
 | `flags` | `{ "flags": { ... } }` | After connect, after context re-eval, and on dashboard publish. |
 | `quota_exceeded` | `429` body (`retryAfter`, optional cached `data`) | Quota exhausted; stream then closes. |
-| `error` | `{ "error": "<code>" }` | After the stream is hijacked (`session_id_missing`, `invalid_context`, …). |
+| `error` | `{ "error": "<code>" }` | The server rejects the stream after it opens (`session_id_missing`, `invalid_context`, …). |
 
 `sessionId` is single-use (consumed on stream open, 300s TTL). Context updates return `202` and are debounced 400ms. Do not put secrets or PII in the stream `context` query parameter.
 
