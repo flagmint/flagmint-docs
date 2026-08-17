@@ -96,6 +96,7 @@ Go from zero to evaluating feature flags in your application.
 
     const client = new FlagClient({
       apiKey: 'ff_your_api_key_here', // Your environment-scoped API key
+      enableFlagmint: true,
       context: {
         kind: "multi",
         user: {
@@ -108,15 +109,13 @@ Go from zero to evaluating feature flags in your application.
           key: "org456",
           plan: "premium"
         }
+      },
+      onError: (error) => {
+        console.warn('Flagmint:', error.message, error.code);
       }
     });
 
-    // Wait for connection — wrap in try/catch for resilience
-    try {
-      await client.ready();
-    } catch (err) {
-      console.warn('Using cached flags:', err.message);
-    }
+    await client.ready();
 
     // Use your flag
     const showNewDashboard = client.getFlag('new_dashboard', false);
@@ -128,7 +127,11 @@ Go from zero to evaluating feature flags in your application.
     }
     ```
 
-    The SDK connects via WebSocket for real-time updates (with automatic long-polling fallback) and caches flags locally by default for offline resilience.
+    The SDK connects via Server-Sent Events for real-time updates (with automatic long-polling fallback) and caches flags locally by default for offline resilience. In Node.js, pass `EventSourceImpl` from a package such as `eventsource`.
+
+    <Note>
+      **Node.js:** `npm install eventsource` and set `EventSourceImpl: EventSource` on the client. See the [Node.js / JavaScript SDK](/sdks/nodejs#nodejs).
+    </Note>
 
     <Note>
       **One API key per environment.** Use your Staging key during development and your Live key in production. The SDK automatically receives the correct flag values for the environment the key is bound to.
@@ -137,7 +140,7 @@ Go from zero to evaluating feature flags in your application.
 </Steps>
 
 <Warning>
-  **Always wrap `ready()` in a try/catch.** If the Flagmint API is unreachable, `ready()` will reject. Cached flags may still be available via `getFlags()` — see the [Error Handling](/sdk/nodejs#error-handling) section for details.
+  **`ready()` never throws.** Auth, quota, and transport failures are reported through `onError`. Cached flags, if any, stay available via `getFlag()` / `getFlags()`. See [Error Handling](/sdks/nodejs#error-handling).
 </Warning>
 
 ## React integration
@@ -150,10 +153,12 @@ import { FlagClient } from 'flagmint-js-sdk';
 
 const client = new FlagClient({
   apiKey: 'ff_your_api_key_here',
+  enableFlagmint: true,
   context: {
     kind: "user",
     user: { kind: "user", key: "user123" }
-  }
+  },
+  onError: (error) => console.warn(error.message)
 });
 
 export function App() {
@@ -165,9 +170,7 @@ export function App() {
       setShowDashboard(flags['new_dashboard'] ?? false);
     });
 
-    client.ready()
-      .then(() => setReady(true))
-      .catch(() => setReady(true)); // flags may be set from cache
+    client.ready().then(() => setReady(true));
 
     return () => unsubscribe();
   }, []);
@@ -250,8 +253,8 @@ The SDK receives the update in real time. All users immediately get the off vari
 ## What's next
 
 <CardGroup cols={2}>
-  <Card title="SDK Reference" icon="js" href="/sdk/nodejs">
-    Full SDK documentation — caching, transport modes, deferred initialization, and more.
+  <Card title="SDK Reference" icon="js" href="/sdks/nodejs">
+    Full SDK documentation — SSE transport, caching, Node.js EventSource, and more.
   </Card>
   <Card title="Targeting Rules" icon="crosshairs" href="/concepts/targeting-rules">
     Control who sees what with segments, custom rules, and rollouts.

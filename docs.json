@@ -2,7 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Flagmint Docs",
-  "openapi": "/api-reference/openapi.json",
+  "openapi": "api-reference/openapi.json",
   "colors": {
     "primary": "#4C1D95",
     "light": "#7C3AED",
@@ -122,7 +122,10 @@
             "group": "Evaluation",
             "pages": [
               "api-reference/evaluate",
-              "api-reference/evaluation/evaluate-feature-flags-using-an-api-key"
+              "api-reference/evaluation/evaluate-feature-flags-using-an-api-key",
+              "api-reference/evaluation/asl-handshake",
+              "api-reference/evaluation/flags-stream",
+              "api-reference/evaluation/update-stream-context"
             ]
           },
           {
@@ -323,5 +326,10 @@
     ]
   },
   "seo": { "indexHiddenPages": false },
-  "feedback": { "thumbsRating": true, "suggestEdit": true }
+  "feedback": { "thumbsRating": true, "suggestEdit": true },
+  "api": {
+    "examples": {
+      "prefill": true
+    }
+  }
 }

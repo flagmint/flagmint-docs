@@ -1,8 +1,79 @@
 ---
 title: "Subscriptions"
-description: "Coming soon."
+description: "Start, change, and cancel a Flagmint plan. Billing is per organisation through Stripe."
 ---
 
-<Note>
-  This page is under construction. Check back soon or [contact us](mailto:support@flagmint.com) if you need this information now.
-</Note>
+Flagmint bills **per organisation**, in EUR, with no per-seat fees. Manage the plan from **Settings → Billing** in the [dashboard](https://flagmint.com/dashboard). Only organisation **admins** can change billing.
+
+Plan prices and feature limits are on [Plans & Pricing](/billing/plans). How evaluations are counted is on [Usage](/billing/usage).
+
+## Start on Free
+
+New organisations start on **Free** unless a paid Stripe price is selected during onboarding. Free is €0 forever: 500 API calls/month (throttled, not blocked), 1 project, 5 flags.
+
+To move to Pro or Growth, add a payment method and confirm the subscription in **Settings → Billing**. Custom plans are quoted by [sales@flagmint.com](mailto:sales@flagmint.com).
+
+## Trial
+
+Paid plans include a **14-day trial**. No second trial after you have used one (`has_used_paid_trial`). Remaining trial days are counted from organisation creation.
+
+During a paid trial the organisation is `trialing`. When the trial ends without a successful payment, flags become **read-only** until you upgrade — evaluations against existing flags still run within the plan quota.
+
+## Change plan
+
+| Change | When it takes effect |
+|--------|----------------------|
+| Upgrade (Free → Pro, Pro → Growth, monthly → annual) | Immediately |
+| Downgrade | End of the current billing period |
+| Annual vs monthly | Annual saves ~17% (Pro €290/year, Growth €790/year) |
+
+Upgrades and payment-method changes go through Stripe. You need a saved card before a paid subscription can be created.
+
+## Cancel
+
+Cancel from **Settings → Billing** (Stripe Customer Portal). The organisation stays on the paid plan until the period ends, then drops to **Free**. Flags and data are kept; features above Free limits are unavailable.
+
+## Stripe Customer Portal
+
+[`GET /billing/portal`](/api-reference/billing/get-billingportal) returns a short-lived Stripe URL. Admins use it to:
+
+- Update payment methods
+- View and download invoices
+- Cancel or resume the subscription
+- Update billing details
+
+Do not store or reuse the portal URL.
+
+Invoices are also listed at [`GET /billing/organizations/{orgId}/invoices`](/api-reference/billing/list-invoices-for-an-organization).
+
+## Subscription status
+
+| Status | Meaning | SDK evaluation |
+|--------|---------|----------------|
+| `trialing` | Paid trial in progress | Allowed |
+| `active` | Paid plan in good standing | Allowed |
+| `past_due` | Payment failed, Stripe retrying | Blocked (403) |
+| `canceled` | Subscription cancelled | Blocked (403) |
+| `incomplete` | First payment not confirmed | Blocked (403) |
+| `incomplete_expired` | First payment window expired | Blocked (403) |
+
+Inactive statuses apply to SSE, WebSocket, and REST evaluate. Fix billing in **Settings → Billing** (`/settings/subscription`) rather than rotating SDK keys.
+
+Overage for Pro and Growth is added to the Stripe invoice at period close. See [Overage](/billing/plans#overage).
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Who can change the plan?">
+    Organisation admins only. Editors and viewers can use flags; they cannot open the billing portal or create a Stripe session.
+  </Accordion>
+  <Accordion title="Where are invoices sent?">
+    To the organisation `billing_email`, or the owner's email if that field is empty.
+  </Accordion>
+  <Accordion title="Can I get another trial after cancelling?">
+    No. A paid trial is once per organisation.
+  </Accordion>
+  <Accordion title="What if payment fails?">
+    Stripe retries. The organisation becomes `past_due` and SDKs receive 403 until the invoice is paid or you return to Free after cancel.
+  </Accordion>
+</AccordionGroup>

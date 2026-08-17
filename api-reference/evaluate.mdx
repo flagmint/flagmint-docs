@@ -1,9 +1,26 @@
 ---
 title: "Evaluation Endpoint"
-description: "Evaluate feature flags for a given context via the REST API."
+description: "Evaluate feature flags over REST, Server-Sent Events, or WebSocket."
 ---
 
-The evaluation endpoint is the primary way to get flag values when you're not using an SDK, or when testing from tools like Postman or curl.
+Use these endpoints when you are not using an SDK, or when you are testing from Postman, curl, or a custom client.
+
+<CardGroup cols={2}>
+  <Card title="REST evaluate" icon="bolt" href="#evaluate-flags">
+    One-shot `POST /evaluator/evaluate`
+  </Card>
+  <Card title="ASL handshake" icon="key" href="/api-reference/evaluation/asl-handshake">
+    Single-use `sessionId` for the stream
+  </Card>
+  <Card title="SSE stream" icon="bolt" href="/api-reference/evaluation/flags-stream">
+    `GET /evaluator/v2/flags/stream`
+  </Card>
+  <Card title="Update context" icon="arrows-rotate" href="/api-reference/evaluation/update-stream-context">
+    `POST /evaluator/v2/flags/context` → `202`
+  </Card>
+</CardGroup>
+
+The **JavaScript SDK v2** uses handshake + SSE. The **Go SDK** still uses WebSocket at `/ws/sdk`. REST evaluate remains the one-shot and long-polling path.
 
 ## Evaluate Flags
 
@@ -102,7 +119,7 @@ Pass the key using the `x-api-key` header:
 x-api-key: ff_177331b0f7adabf1b75e026762c1acc005bff9d244eff5ebe98d1aff69c2df34
 ```
 
-SDK keys only grant access to the evaluation endpoint. They cannot create, update, or delete flags.
+SDK keys grant access to evaluation (`/evaluator/*`) and the ASL handshake. They cannot create, update, or delete flags.
 
 ## Error Responses
 
@@ -134,58 +151,74 @@ The evaluation endpoint returns rate limit headers:
 
 When rate limited (429), the SDK should use cached values and retry after the reset time.
 
-## WebSocket Connection
+## Server-Sent Events (JavaScript SDK v2)
 
-For real-time flag updates without polling, connect via WebSocket instead of HTTP:
+For a persistent stream, handshake first, then open EventSource. Do not reuse a `sessionId`.
 
 ```javascript
-const ws = new WebSocket('wss://api.flagmint.com/ws/sdk');
+const handshake = await fetch('https://api.flagmint.com/auth/asl-handshake', {
+  method: 'POST',
+  headers: { 'x-api-key': 'ff_your_sdk_key' }
+});
+const { data } = await handshake.json();
 
-ws.onopen = () => {
-  // Send SDK key and context
-  ws.send(JSON.stringify({
-    type: 'init',
-    sdkKey: 'ff_your_sdk_key',
-    context: {
-      kind: 'user',
-      key: 'user-123',
-      country: 'IE'
-    }
-  }));
-};
+const context = btoa(JSON.stringify({
+  kind: 'user',
+  key: 'user-123',
+  country: 'IE'
+}));
 
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  // Receive flag evaluations
-  console.log('Flags:', data.flags);
-};
+const stream = new EventSource(
+  `https://api.flagmint.com/evaluator/v2/flags/stream?sessionId=${encodeURIComponent(data.sessionId)}&context=${encodeURIComponent(context)}&platform=browser`
+);
+
+stream.addEventListener('connected', (event) => {
+  const { connectionId } = JSON.parse(event.data);
+  // Keep connectionId for POST /evaluator/v2/flags/context
+});
+
+stream.addEventListener('flags', (event) => {
+  const { flags } = JSON.parse(event.data);
+  console.log('Flags:', flags);
+});
+
+stream.addEventListener('quota_exceeded', (event) => {
+  console.error('Quota:', JSON.parse(event.data));
+});
 ```
 
-### WebSocket Benefits
+| Step | Method | Path |
+|------|--------|------|
+| 1. Session | `POST` | [`/auth/asl-handshake`](/api-reference/evaluation/asl-handshake) |
+| 2. Stream | `GET` | [`/evaluator/v2/flags/stream`](/api-reference/evaluation/flags-stream) |
+| 3. Context (optional) | `POST` | [`/evaluator/v2/flags/context`](/api-reference/evaluation/update-stream-context) → `202`, flags on the stream |
 
-- **Instant updates** — Flag changes pushed immediately (no cache delay)
-- **Lower latency** — Persistent connection eliminates handshake overhead
-- **Reduced bandwidth** — Only changed flags are sent
-- **Automatic reconnection** — Built-in connection management
+Heartbeats are SSE comments (`: heartbeat`) and are invisible to `EventSource`.
 
-### HTTP Long-Polling Fallback
+Named stream events:
 
-If WebSocket isn't available (firewall restrictions, legacy browsers), the SDK automatically falls back to HTTP long-polling:
+| Event | Payload | When |
+|-------|---------|------|
+| `connected` | `{ "connectionId": "<uuid>" }` | First frame. Store `connectionId` for context updates. |
+| `flags` | `{ "flags": { ... } }` | After connect, after context re-eval, and on dashboard publish. |
+| `quota_exceeded` | `429` body (`retryAfter`, optional cached `data`) | Quota exhausted; stream then closes. |
+| `error` | `{ "error": "<code>" }` | After the stream is hijacked (`session_id_missing`, `invalid_context`, …). |
 
-```bash
-POST /evaluator/poll
-x-api-key: ff_your_sdk_key
-```
+`sessionId` is single-use (consumed on stream open, 300s TTL). Context updates return `202` and are debounced 400ms. Do not put secrets or PII in the stream `context` query parameter.
 
-The server holds the connection open until flags change or a timeout occurs (60s), then responds with updated flags.
+### HTTP long-polling fallback
+
+If EventSource is blocked, the JavaScript SDK posts `POST /evaluator/evaluate` on an interval (`transportMode: 'long-polling'` or `'auto'` after SSE init fails). There is no `/evaluator/poll` endpoint.
+
+## WebSocket (Go SDK)
+
+The Go SDK still connects at `wss://api.flagmint.com/ws/sdk` with a `sessionId` query parameter from the same ASL handshake. Prefer the [Go transport guide](/sdks/go/transport) rather than speaking this protocol from new clients.
 
 ## Caching Behaviour
 
-The server caches flag configuration in Redis with a 10-second TTL. This means:
-
-- Flag changes in the dashboard are reflected within 10 seconds on REST endpoint
-- WebSocket connections receive changes instantly (no cache delay)
-- Under high load, most requests are served from cache without hitting the database
+- REST evaluate may return a cached evaluation for the API key’s environment
+- Open SSE (and WebSocket) connections receive dashboard publishes as soon as the rule set is reloaded
+- Opening the stream and posting a context update both go through the evaluation quota guard
 
 ## Testing with curl
 
@@ -208,14 +241,14 @@ For visual testing without writing code, use the **Flagmint SDK Tester** — a s
 
 ### What is the SDK Tester?
 
-The SDK Tester connects directly to your Flagmint API using the raw wire protocol (WebSocket or HTTP long-polling). It doesn't use any Flagmint SDK — this is intentional, so you're testing the server contract, not the SDK's interpretation of it.
+The SDK Tester connects directly to your Flagmint API using the raw wire protocol. It doesn't use any Flagmint SDK — this is intentional, so you're testing the server contract, not the SDK's interpretation of it.
 
 ### Key Features
 
-- 🔌 **Dual Transport Support** — Switch between WebSocket and HTTP long-polling
+- 🔌 **Transport support** — SSE stream, WebSocket, and HTTP evaluate
 - 🎯 **Visual Context Builder** — Add/remove context key-value pairs via UI
 - 🚩 **Live Flag Display** — See all flags with real-time updates
-- 📡 **Protocol Logging** — View raw WebSocket messages and connection events
+- 📡 **Protocol Logging** — View handshake, stream events, and connection lifecycle
 - ⚡ **Context Presets** — Quick setups for common scenarios (simple user, multi-context, empty)
 - 📊 **Change History** — Track flag value changes over time
 
@@ -237,7 +270,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser, enter your 
 
 ### Basic Workflow
 
-1. **Configure Connection** — Enter your API URL and SDK key, choose transport (WebSocket or long-polling)
+1. **Configure Connection** — Enter your API URL and SDK key, choose transport (SSE or REST evaluate)
 2. **Set Up Context** — Use a preset or manually add context fields (e.g., `kind: user`, `key: test-user-123`)
 3. **Connect & Test** — Click "Connect" and "Send Context" to evaluate flags
 4. **Verify Updates** — Change a flag in the dashboard and watch it update instantly in the tester
@@ -248,8 +281,8 @@ Open [http://localhost:5173](http://localhost:5173) in your browser, enter your 
 - ✅ Flag respects user targeting rules
 - ✅ Flag respects multi-context targeting
 - ✅ Flag updates in real-time when changed in dashboard
-- ✅ WebSocket connection is stable (no disconnects)
-- ✅ Long-polling fallback works correctly
+- ✅ SSE connection is stable (handshake, `connected`, then `flags`)
+- ✅ Long-polling / REST evaluate fallback works correctly
 - ✅ Empty context returns expected defaults
 - ✅ Custom context attributes are evaluated correctly
 
@@ -258,10 +291,10 @@ Open [http://localhost:5173](http://localhost:5173) in your browser, enter your 
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Authentication" icon="key" href="/api-reference/authentication">
-    SDK keys vs admin keys, scoping, and rotation.
+  <Card title="Node.js / JavaScript SDK" icon="js" href="/sdks/nodejs">
+    SSE client with EventSource, caching, and long-polling fallback.
   </Card>
-  <Card title="React SDK" icon="react" href="/sdks/react">
-    Use the SDK instead of raw API calls for caching, real-time updates, and offline support.
+  <Card title="Go SDK" icon="code" href="/sdks/go">
+    Server-side Go client (WebSocket transport).
   </Card>
 </CardGroup>

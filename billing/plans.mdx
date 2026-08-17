@@ -7,6 +7,15 @@ Flagmint uses **per-organisation flat-rate pricing**. Add your entire team — d
 
 All prices are in EUR (€). All plans include EU data residency and GDPR compliance.
 
+<CardGroup cols={2}>
+  <Card title="Usage" icon="gauge" href="/billing/usage">
+    What counts toward the monthly evaluation quota, and what happens when you hit it.
+  </Card>
+  <Card title="Subscriptions" icon="credit-card" href="/billing/subscriptions">
+    Trials, upgrades, cancellations, invoices, and Stripe billing status.
+  </Card>
+</CardGroup>
+
 ## Plans
 
 <CardGroup cols={2}>
@@ -16,7 +25,7 @@ All prices are in EUR (€). All plans include EU data residency and GDPR compli
     - 1 project
     - 5 feature flags
     - 500 API calls/month
-    - WebSocket and long-polling transport
+    - SSE, WebSocket, and long-polling transport
     - Community support
 
     Throttled (not blocked) after the limit. Your SDK continues working with cached values.
@@ -67,14 +76,18 @@ All prices are in EUR (€). All plans include EU data residency and GDPR compli
 <AccordionGroup>
   <Accordion title="Billable">
     - SDK flag evaluation (REST `POST /evaluator/evaluate`)
-    - WebSocket context update (each `{ type: 'context' }` message)
+    - Opening an SSE stream (`GET /evaluator/v2/flags/stream`)
+    - SSE context update (`POST /evaluator/v2/flags/context`)
+    - WebSocket context update (each `type: context` message)
     - Flag management writes (create, update, delete flags/rules/segments)
   </Accordion>
   <Accordion title="Not billable">
+    - SSE heartbeat comments (`: heartbeat`)
+    - Dashboard-driven `flags` pushes on an already-open stream
     - WebSocket ping/pong (heartbeat)
-    - Initial WebSocket connection
+    - ASL handshake (`POST /auth/asl-handshake`)
     - Health checks
-    - Authentication requests
+    - Authentication requests (login, token refresh)
     - Failed requests (4xx, 5xx)
     - Read operations (listing flags, viewing settings)
   </Accordion>

@@ -1,8 +1,27 @@
 ---
 title: "Changelog"
-description: "Coming soon."
+description: "Product and API changes in Flagmint."
 ---
 
-<Note>
-  This page is under construction. Check back soon or [contact us](mailto:support@flagmint.com) if you need this information now.
-</Note>
+## 2026-08 — SSE evaluation stream (v2)
+
+The evaluation API and JavaScript SDK now use **Server-Sent Events** instead of WebSocket.
+
+**Server (FF-EU)**
+
+- `POST /auth/asl-handshake` — exchange `x-api-key` for a single-use `sessionId` (5 minute TTL, consumed on stream open)
+- `GET /evaluator/v2/flags/stream` — `text/event-stream` with `connected`, `flags`, `quota_exceeded`, and `error` events; heartbeats are SSE comments
+- `POST /evaluator/v2/flags/context` — queue a context change (`202`); flags are pushed on the open stream after a 400ms debounce
+- Stream opens and context posts go through the evaluation quota guard
+- `POST /evaluator/evaluate` remains for one-shot and long-polling clients
+- Go SDK continues to use WebSocket at `/ws/sdk`
+
+**JavaScript SDK (`flagmint-js-sdk` v2)**
+
+- `transportMode`: `'auto' | 'sse' | 'long-polling'` (`'websocket'` removed)
+- Node.js requires `EventSourceImpl` (for example `eventsource`)
+- `ready()` always resolves; failures go to `onError` (`ERR_AUTH`, `ERR_RATE_LIMITED`, …)
+- Optional same-origin connection sharing in browsers (`shareConnection`)
+- Reconnects handshake for a fresh `sessionId` before opening EventSource again
+
+See the [Node.js / JavaScript SDK](/sdks/nodejs) and [evaluation API](/api-reference/evaluate).

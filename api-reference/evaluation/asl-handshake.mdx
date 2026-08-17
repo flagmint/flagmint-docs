@@ -1,0 +1,14 @@
+---
+title: Initiate ASL handshake session
+description: Authenticates an environment SDK key and returns a single-use sessionId for opening the flag stream.
+openapi: "api-reference/openapi.json POST /auth/asl-handshake"
+authMethod: none
+---
+
+Authenticates an environment SDK key (`x-api-key` only) and issues a **single-use** `sessionId`. The JavaScript SDK calls this before opening Server-Sent Events.
+
+The session is stored for **300 seconds** and is **consumed on first successful stream open**. Reconnects must handshake again. Pass `sessionId` to [Open the flag stream](/api-reference/evaluation/flags-stream).
+
+<Info>
+  Handshake requests are **not billable**. Opening the [flag stream](/api-reference/evaluation/flags-stream) and posting [context updates](/api-reference/evaluation/update-stream-context) count against the monthly evaluation quota. See [What counts as an API call](/billing/plans#what-counts-as-an-api-call).
+</Info>

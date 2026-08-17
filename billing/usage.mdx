@@ -1,8 +1,81 @@
 ---
 title: "Usage"
-description: "Coming soon."
+description: "How Flagmint counts API calls, enforces monthly evaluation quota, and shows usage in the dashboard."
 ---
 
-<Note>
-  This page is under construction. Check back soon or [contact us](mailto:support@flagmint.com) if you need this information now.
-</Note>
+Usage is tracked **per organisation**, not per seat or per project. The evaluation quota resets on the **UTC calendar month**.
+
+View current usage in the dashboard under **Settings → Billing**, or via [`GET /billing/usage`](/api-reference/billing/get-current-month-usage-for-organization).
+
+## What is tracked
+
+| Meter | What it measures | When it is checked |
+|-------|------------------|--------------------|
+| API calls | Billable evaluations in the current UTC month | Before every REST evaluate, SSE stream open, SSE context update, and WebSocket context message |
+| Flags | Active flags across all projects | When you create a flag |
+| Projects | Active projects | When you create a project |
+
+Flag and project limits return **403** at create time. Evaluation quota returns **429** (or a `quota_exceeded` SSE event) and does not create or delete flags.
+
+Included amounts are on the [plan](/billing/plans). Custom plans set a contract limit and do not charge overage.
+
+## What counts as an API call
+
+These evaluation requests increment the monthly meter:
+
+- REST `POST /evaluator/evaluate`
+- Opening `GET /evaluator/v2/flags/stream`
+- SSE `POST /evaluator/v2/flags/context`
+- WebSocket `type: context` messages
+
+These do **not**:
+
+- [`POST /auth/asl-handshake`](/api-reference/evaluation/asl-handshake)
+- SSE heartbeat comments (`: heartbeat`) and WebSocket ping/pong
+- Dashboard-driven `flags` pushes on an already-open stream
+- Failed requests (4xx, 5xx)
+- Login, token refresh, health checks, and dashboard reads
+
+The full list is on [Plans & Pricing](/billing/plans#what-counts-as-an-api-call).
+
+## When you hit the evaluation limit
+
+| Plan | What the SDK sees |
+|------|-------------------|
+| **Free** | Throttled, never charged. Cached flags keep serving. REST and context updates return **429** with `retryAfter: 60` and a last snapshot in `data`. An SSE open emits `quota_exceeded` then closes. |
+| **Pro / Growth** | Hard block after a **20% grace buffer** (for example Pro 50K included → enforcement at 60K). REST and context updates return **429** with `error: QUOTA_EXCEEDED` and `retryAfter: 3600`. The stream emits `quota_exceeded` then closes. |
+| **Custom** | Contract limit, no overage line items |
+
+`upgradeUrl` on quota payloads is `/settings/subscription`.
+
+The JavaScript SDK reports this as `ERR_RATE_LIMITED` on `onError`. `ready()` still resolves if a cache snapshot exists. See [Error handling](/sdks/nodejs#error-handling).
+
+<Info>
+  Opening a stream and posting a context update both go through the quota guard. Reconnect storms and `updateContext()` on every Node HTTP request against a singleton client will burn the monthly allowance quickly.
+</Info>
+
+## Overage (paid plans)
+
+Pro and Growth are billed for usage **above the grace limit**, in 1M-call blocks, on the Stripe invoice for that billing period. Rates are on [Overage](/billing/plans#overage).
+
+Free organisations are never invoiced for evaluations.
+
+## Alerts
+
+- Dashboard usage on **Settings → Billing**
+- [`quota.warning` webhooks](/platform/webhooks) at 80%, 90%, and 100% of the evaluation quota
+- Email when a Free organisation approaches the monthly cap
+
+## Usage API
+
+Admins can read the current month from [`GET /billing/usage`](/api-reference/billing/get-current-month-usage-for-organization):
+
+```json
+{
+  "apiCalls": { "used": 12400, "limit": 50000 },
+  "flags": { "used": 12, "limit": 25 },
+  "projects": { "used": 2, "limit": 3 }
+}
+```
+
+`limit` is `null` when the plan does not cap that meter.

@@ -1,0 +1,20 @@
+---
+title: Open the flag stream
+description: Opens a Server-Sent Events connection that pushes flag evaluations for a session.
+openapi: "api-reference/openapi.json GET /evaluator/v2/flags/stream"
+authMethod: none
+---
+
+Opens a `text/event-stream`. Clients must present a valid `sessionId` from [ASL handshake](/api-reference/evaluation/asl-handshake). Do not send `x-api-key` or `Authorization` on this request — authentication is the session token, and it cannot be reused.
+
+Named events: `connected` (store `connectionId`), `flags`, `quota_exceeded`, `error`. Heartbeats are SSE comments (`: heartbeat`) and are not exposed by EventSource.
+
+<Info>
+  **Opening the stream is billable.** Heartbeats and later dashboard-driven `flags` pushes on this connection are not. [ASL handshake](/api-reference/evaluation/asl-handshake) is not billable. See [What counts as an API call](/billing/plans#what-counts-as-an-api-call).
+</Info>
+
+If the monthly quota is already exhausted, the stream emits `quota_exceeded` and then closes. Free plans include cached flags in that payload; paid plans hard-block after a 20% grace buffer.
+
+<Warning>
+  `sessionId` and `context` appear in the query string. Do not put secrets or PII in context.
+</Warning>

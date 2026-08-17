@@ -1,0 +1,33 @@
+---
+title: Update stream context
+description: Queues a context change for an existing SSE connection. Returns 202; flags are pushed after a 400ms debounce.
+openapi: "api-reference/openapi.json POST /evaluator/v2/flags/context"
+authMethod: none
+---
+
+Updates the evaluation context for an **existing** SSE connection. Authenticate with `x-api-key` only — do not send `Authorization`.
+
+The HTTP response is `202 Accepted` in the standard envelope. Evaluated flags are **not** in this body; they are pushed as a `flags` event after a **400ms** debounce.
+
+```json
+{
+  "statusCode": 202,
+  "message": "Resource Found",
+  "data": {
+    "statusCode": 202,
+    "message": "Context configuration update queued successfully"
+  }
+}
+```
+
+This is what the JavaScript SDK’s `updateContext()` calls. It does not open or close the stream. A `404` means the stream died — handshake and open a new stream instead of retrying the same `connectionId`.
+
+<Info>
+  This request is **billable** — it counts against the monthly evaluation quota. The `flags` event that follows is not an extra call. [ASL handshake](/api-reference/evaluation/asl-handshake) is not billable. See [What counts as an API call](/billing/plans#what-counts-as-an-api-call).
+</Info>
+
+When the quota is exhausted, the response is **429** (not 202). Free plans are throttled and keep serving cached flags. Paid plans hard-block after a 20% grace buffer.
+
+<Warning>
+  One SSE connection has one context. Do not use this endpoint to target a different user on every Node HTTP request against a singleton client.
+</Warning>

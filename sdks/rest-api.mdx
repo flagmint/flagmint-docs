@@ -1,8 +1,20 @@
 ---
-title: "Rest Api"
-description: "Coming soon."
+title: "REST and streaming API"
+description: "Evaluate flags without an SDK using REST, Server-Sent Events, or WebSocket."
 ---
 
-<Note>
-  This page is under construction. Check back soon or [contact us](mailto:support@flagmint.com) if you need this information now.
-</Note>
+You do not need an SDK to evaluate flags. The same endpoints the SDKs use are public.
+
+| Use case | Protocol | Docs |
+|----------|----------|------|
+| One-shot evaluation | `POST /evaluator/evaluate` | [Evaluate flags](/api-reference/evaluate) |
+| Session for a stream | `POST /auth/asl-handshake` | [ASL handshake](/api-reference/evaluation/asl-handshake) |
+| Real-time JavaScript / Node | `GET /evaluator/v2/flags/stream` | [Flag stream (SSE)](/api-reference/evaluation/flags-stream) |
+| Change targeting on an open stream | `POST /evaluator/v2/flags/context` | [Update stream context](/api-reference/evaluation/update-stream-context) |
+| Go SDK (existing) | `wss://…/ws/sdk` | [Go transport](/sdks/go/transport) |
+
+Authenticate evaluation with an environment SDK key (`ff_…`) in `x-api-key`. Handshake issues a single-use `sessionId`; the stream consumes it. Context updates return `202` and the next `flags` event arrives after a 400ms debounce.
+
+<Tip>
+  Prefer an SDK when you can. The [Node.js / JavaScript SDK](/sdks/nodejs) handles handshake, reconnection, quota events, and caching. Use these endpoints for languages without an SDK, or for protocol tests.
+</Tip>
