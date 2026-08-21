@@ -1,35 +1,39 @@
 ---
 title: "Node.js / JavaScript SDK"
-description: "Framework-agnostic JavaScript SDK for evaluating feature flags with pluggable caching and real-time updates"
+description: "Framework-agnostic JavaScript SDK for evaluating feature flags over SSE, with pluggable caching and a long-polling fallback"
 ---
 
 # Flagmint JavaScript SDK
 
-The Flagmint JavaScript SDK is a framework-agnostic client for evaluating feature flags with pluggable caching and flexible transport strategies. It works seamlessly in both browser and Node.js server-side environments.
+The Flagmint JavaScript SDK evaluates feature flags in browsers and Node.js. After `ready()`, `getFlag()` reads a local snapshot — there is no network on the read path. Flag publishes arrive over Server-Sent Events (SSE).
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="rocket" href="#quick-start">
-    Get up and running in minutes
-  </Card>
-  <Card title="React Integration" icon="react" href="#react">
-    Framework-specific examples
+    Browser and Node.js setup
   </Card>
   <Card title="Configuration" icon="gear" href="#configuration">
-    Customize caching and transport
+    Transport, cache, and endpoints
   </Card>
-  <Card title="API Reference" icon="code" href="#api-reference">
-    Complete method documentation
+  <Card title="Node.js servers" icon="server" href="#nodejs--express">
+    EventSource polyfill and per-process clients
+  </Card>
+  <Card title="Streaming API" icon="bolt" href="/api-reference/evaluate">
+    Handshake, SSE stream, and context updates
   </Card>
 </CardGroup>
 
 ## Key Features
 
-- **Framework-Agnostic** — Works with React, Vue, vanilla JS, Node.js, and more
-- **Flexible Transport** — WebSocket for real-time updates with automatic long-polling fallback
-- **Pluggable Caching** — Built-in sync cache, async cache (Redis/filesystem), or custom implementations
-- **Server & Browser Support** — Compatible with browser, Node.js, and React Native
-- **Type-Safe** — Full TypeScript support with comprehensive type definitions
-- **Zero-Config Defaults** — Works out of the box with sensible defaults
+- **Framework-agnostic** — React, Vue, Angular, vanilla JS, Express, Fastify, and Node.js
+- **SSE streaming** — Handshake at `POST /auth/asl-handshake`, flags at `GET /evaluator/v2/flags/stream`
+- **Automatic reconnection** — A consumed `sessionId` is single-use; reconnects fetch a new one
+- **Long-polling fallback** — `transportMode: 'auto'` tries SSE, then `POST /evaluator/evaluate`
+- **Pluggable caching** — localStorage in the browser; inject Redis or files in Node
+- **Type-safe** — TypeScript declarations included
+
+<Note>
+  v2 replaces WebSocket with SSE. Use `transportMode: 'sse' | 'long-polling' | 'auto'`. The `'websocket'` option is no longer valid.
+</Note>
 
 ## Installation
 
@@ -48,55 +52,99 @@ pnpm add flagmint-js-sdk
 </CodeGroup>
 
 <Note>
-  **TypeScript Support**: The SDK includes built-in TypeScript declarations with full type safety.
+  **Node.js 18+.** Node has no native `EventSource`. Install a polyfill such as `eventsource` and pass it as `EventSourceImpl`.
 </Note>
 
 ## Quick Start
+
+### Browser
 
 ```javascript
 import { FlagClient } from 'flagmint-js-sdk';
 
 const client = new FlagClient({
   apiKey: 'ff_your_api_key_here',
+  enableFlagmint: true,
   context: {
-    kind: "multi",
+    kind: 'multi',
     user: {
-      kind: "user",
+      kind: 'user',
       key: 'user123',
       email: 'user@example.com'
     },
     organization: {
-      kind: "organization",
+      kind: 'organization',
       key: 'org456',
       plan: 'premium'
     }
+  },
+  onError: (error) => {
+    console.error(error.message, error.code);
   }
 });
 
-// Wait for initial connection and flag sync
-try {
-  await client.ready();
-} catch (err) {
-  // Transport failed — flags may still be available from cache
-  console.warn('Connection failed:', err.message);
-  console.log('Cached flags:', client.getFlags());
-}
+await client.ready();
 
-// Get flag values
 const showBanner = client.getFlag('show_banner', false);
 const featureVersion = client.getFlag('feature_version', 'v1');
-
-// Update context and re-evaluate (returns a Promise)
-await client.updateContext({
-  user: {
-    key: 'user456',
-    email: 'newuser@example.com'
-  }
-});
 ```
 
+Same-origin tabs and iframes that share an API key use **one** SSE connection when `BroadcastChannel` is available. Set `shareConnection: false` if two clients on the page must keep different evaluation contexts, or if the origin hosts untrusted documents.
+
+### Node.js
+
+```bash
+npm install eventsource
+```
+
+```javascript
+import { FlagClient } from 'flagmint-js-sdk';
+import EventSource from 'eventsource';
+
+const apiKey = process.env.FLAGMINT_API_KEY;
+if (!apiKey) {
+  throw new Error('FLAGMINT_API_KEY is required');
+}
+
+const client = new FlagClient({
+  apiKey,
+  enableFlagmint: true,
+  EventSourceImpl: EventSource,
+  env: process.env.FLAGMINT_ENVIRONMENT || 'production',
+  onError: (error) => {
+    console.error('Flagmint error:', error);
+  }
+});
+
+await client.ready();
+
+const enabled = client.getFlag('new_api', false);
+```
+
+Each Node process (including each cluster worker) should construct its own `FlagClient`. Connection sharing is off without `window`.
+
 <Warning>
-  **`ready()` rejects on transport failure.** If the SDK cannot connect to Flagmint, `await client.ready()` will throw. If offline caching is enabled (which it is by default), cached flags may still be available via `client.getFlags()` — wrap `ready()` in a `try/catch` to handle this gracefully. See [Error Handling](#error-handling) for details.
+  **`ready()` never throws.** Auth, quota, and transport failures go to `onError`. If a cache snapshot exists, `getFlag()` keeps serving it. Always set `onError` in production.
+</Warning>
+
+## How it works
+
+After `ready()`:
+
+1. Optionally joins a same-origin share group (browser). Followers skip handshake and the stream.
+2. `POST /auth/asl-handshake` with `X-API-Key` → single-use `sessionId` (5 minute TTL).
+3. Opens `GET /evaluator/v2/flags/stream?sessionId&context&sdkVersion&platform&wrapper*`.
+4. The server sends `connected` (connection id) then `flags` (evaluated map). Heartbeats are SSE comments (`: heartbeat`) and are not exposed by EventSource.
+5. Flags are stored in the cache adapter. Later dashboard publishes arrive as `flags` events on the same stream.
+
+`getFlag()` / `getFlags()` never hit the network. They read the last evaluated snapshot.
+
+`updateContext()` posts `/evaluator/v2/flags/context` with `x-api-key` and a JSON body of `connectionId` plus `context`. The HTTP response is `202`; new values arrive as a `flags` event after a **400ms** server debounce.
+
+See the [streaming evaluation API](/api-reference/evaluate) for the wire protocol.
+
+<Warning>
+  The stream URL serializes `context` as a base64 query parameter. Do not put secrets or PII in context. Redact `sessionId` and `context` from access logs, reverse-proxy logs, and telemetry.
 </Warning>
 
 ## Configuration
@@ -105,57 +153,63 @@ await client.updateContext({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `apiKey` | `string` | **Required** | Your environment API key |
-| `context` | `Record<string, any>` | `{}` | Initial evaluation context (user attributes, org, etc.) |
-| `enableOfflineCache` | `boolean` | `true` | Cache flags locally for offline resilience |
-| `persistContext` | `boolean` | `false` | Persist evaluation context across sessions |
-| `cacheAdapter` | `CacheAdapter` | Sync helper | Custom cache implementation |
-| `transportMode` | `'auto'` \| `'websocket'` \| `'long-polling'` | `'auto'` | Transport strategy for flag updates |
-| `onError` | `(error: Error) => void` | `undefined` | Callback for transport or initialization errors |
-| `previewMode` | `boolean` | `false` | Evaluate using `rawFlags` only, bypassing remote fetch |
-| `rawFlags` | `Record<string, FlagValue>` | `undefined` | Local-only flag definitions for preview mode |
-| `deferInitialization` | `boolean` | `false` | If true, initialization is deferred until `ready()` is called |
-| `restEndpoint` | `string` | Auto-detected | Custom REST evaluation endpoint |
-| `wsEndpoint` | `string` | Auto-detected | Custom WebSocket endpoint |
+| `apiKey` | `string` | **Required** | Environment API key (`ff_…`) |
+| `enableFlagmint` | `boolean` | `true` | Set `false` in local/dev to skip handshake and the stream |
+| `context` | object | empty object | Initial evaluation context. Do not put secrets or PII here |
+| `transportMode` | `auto`, `sse`, or `long-polling` | `auto` | `auto` tries SSE, then long-polling |
+| `EventSourceImpl` | EventSource constructor | browser global | **Required in Node** |
+| `shareConnection` | `boolean` | `true` in browsers with `BroadcastChannel`, `false` in Node | One stream per API key across same-origin documents |
+| `enableOfflineCache` | `boolean` | `true` | Load/save flags via the cache adapter |
+| `persistContext` | `boolean` | `false` | Persist context in the cache adapter |
+| `cacheAdapter` | `CacheAdapter` | localStorage helpers | Custom cache (Redis, files, and similar) |
+| `restEndpoint` | `string` | env default | Override the long-polling / evaluate URL |
+| `sseEndpoint` | `string` | env default | Override the SSE base URL (`/stream` and `/context`) |
+| `handshakeEndpoint` | `string` | env default | Override the ASL handshake URL. Use with `sseEndpoint` for self-hosted gateways |
+| `env` | `string` | `NODE_ENV` | `development`, `staging`, or `production` |
+| `wrapperInfo` | object with `name` and `version` | native-js | Framework wrapper telemetry on the stream URL |
+| `previewMode` / `rawFlags` | — | — | Local-only evaluation, no network |
+| `deferInitialization` | `boolean` | `false` | Wait for `ready()` before connecting |
+| `debugLog` | `boolean` | `false` | Verbose SDK logs |
+| `onError` | callback | — | Auth, quota, transport, and context errors. `ready()` still resolves |
 
 <Note>
-  **Endpoint auto-detection**: The SDK automatically selects endpoints based on `NODE_ENV` — production uses `api.flagmint.com`, staging uses `staging-api.flagmint.com`, and development defaults to `localhost:3000`. Override with `restEndpoint` and `wsEndpoint` if needed.
+  **Endpoint auto-detection** uses `env` (or `NODE_ENV`): production → `api.flagmint.com`, staging → `staging-api.flagmint.com`, development → `localhost:3000`. Override with `restEndpoint`, `sseEndpoint`, and `handshakeEndpoint` for self-hosted gateways.
 </Note>
 
 ### Context Structure
-
-The `context` object should follow this structure:
 
 ```typescript
 {
   kind: "multi" | "user" | "organization",
   user?: {
     kind: "user",
-    key: string,        // Unique user identifier
+    key: string,
     email?: string,
     name?: string,
-    // ... any custom attributes
+    // ... custom attributes used by targeting rules
   },
   organization?: {
     kind: "organization",
-    key: string,        // Unique org identifier
+    key: string,
     plan?: string,
-    // ... any custom attributes
   }
 }
 ```
+
+<Note>
+  Configuring `enableOfflineCache` and `persistContext` in a browser? See [SDK Privacy and Caching Configuration](/sdks/privacy-and-caching).
+</Note>
 
 ## Cache Adapters
 
 ### Sync (Browser / In-Memory)
 
-By default, the SDK uses a sync `localStorage`-based helper in browsers or a `Map` in Node.js:
+By default, the SDK uses a sync `localStorage`-based helper in browsers:
 
 ```javascript
 import { FlagClient } from 'flagmint-js-sdk';
 import { setCacheStorage } from 'flagmint-js-sdk/core/cacheHelper';
 
-// For Node.js, override with custom storage
 const myMap = new Map();
 setCacheStorage({
   getItem: (key) => myMap.get(key) ?? null,
@@ -164,6 +218,7 @@ setCacheStorage({
 
 const client = new FlagClient({
   apiKey: 'ff_...',
+  enableFlagmint: true,
   enableOfflineCache: true
 });
 ```
@@ -175,9 +230,12 @@ Use the async helper for server-side or React Native:
 ```javascript
 import { FlagClient } from 'flagmint-js-sdk';
 import * as asyncCache from 'flagmint-js-sdk/core/cacheHelper.async';
+import EventSource from 'eventsource';
 
 const client = new FlagClient({
   apiKey: 'ff_...',
+  enableFlagmint: true,
+  EventSourceImpl: EventSource,
   cacheAdapter: {
     loadFlags: asyncCache.loadCachedFlags,
     saveFlags: asyncCache.saveCachedFlags,
@@ -191,24 +249,26 @@ const client = new FlagClient({
 
 ```javascript
 import { FlagClient } from 'flagmint-js-sdk';
+import EventSource from 'eventsource';
 import redis from 'redis';
 
 const redisClient = redis.createClient();
 
 const client = new FlagClient({
   apiKey: 'ff_...',
+  enableFlagmint: true,
+  EventSourceImpl: EventSource,
   cacheAdapter: {
     loadFlags: async (apiKey, cacheTTL) => {
       const cached = await redisClient.get(`flags:${apiKey}`);
       if (!cached) return null;
       const parsed = JSON.parse(cached);
-      // Optionally respect cacheTTL (in ms) for expiry logic
       return parsed;
     },
     saveFlags: async (apiKey, flags) => {
       await redisClient.setex(
         `flags:${apiKey}`,
-        600, // 10 min TTL
+        600,
         JSON.stringify(flags)
       );
     },
@@ -219,7 +279,7 @@ const client = new FlagClient({
     saveContext: async (apiKey, context) => {
       await redisClient.setex(
         `context:${apiKey}`,
-        3600, // 1 hour TTL
+        3600,
         JSON.stringify(context)
       );
     }
@@ -228,96 +288,56 @@ const client = new FlagClient({
 ```
 
 <Note>
-  The default cache TTL is 24 hours. The `loadFlags` function receives the TTL (in milliseconds) as a second argument so your custom adapter can respect it.
+  The default cache TTL is 24 hours. `loadFlags` receives the TTL in milliseconds so a custom adapter can respect it.
 </Note>
 
 ## Transport Modes
 
-The SDK supports three transport strategies:
-
-| Mode | Latency | Resource Usage | Best For |
-|------|---------|----------------|----------|
-| **WebSocket** | Lowest (real-time) | Efficient | Real-time dashboards, live updates |
-| **Long-Polling** | Medium | Higher | Simpler setup, firewall-friendly |
-| **Auto** (default) | Lowest to Medium | Varies | Most applications (recommended) |
+| Mode | Behaviour | Best for |
+|------|-----------|----------|
+| **SSE** | Persistent `text/event-stream`. Failures go to `onError`; cached flags keep serving (no long-polling fallback) | Node servers, browsers that allow EventSource |
+| **Long-polling** | `POST /evaluator/evaluate` on a 20-minute interval, exponential backoff on failure (up to 60s, 2× multiplier) | Firewalls that block EventSource, serverless |
+| **Auto** (default) | Tries SSE first, then long-polling | Most applications |
 
 ```javascript
 const client = new FlagClient({
   apiKey: 'ff_...',
-  transportMode: 'websocket' // or 'long-polling' or 'auto'
+  enableFlagmint: true,
+  transportMode: 'sse' // or 'long-polling' or 'auto'
 });
 ```
 
-### Transport Behavior
+## Connection sharing
 
-- **WebSocket**: Persistent connection for instant flag updates
-- **Long-Polling**: Polls at 20-minute intervals with exponential backoff on failure (up to 60s max, 2x multiplier)
-- **Auto** (default): Tries WebSocket first, falls back to long-polling if the WebSocket connection fails
+Used when the same app is embedded twice on one origin (for example two iframes in a host page).
+
+- **Leader** performs handshake and holds EventSource.
+- **Followers** receive flag snapshots over `BroadcastChannel` (`flagmint-share` plus the API key). Leadership is a `localStorage` lock.
+- Follower `updateContext()` is forwarded to the leader. Last write wins.
+- If the leader iframe unloads, it posts `bye` so another member can take over. If the tab is killed without `pagehide`, followers wait for the lock TTL.
+
+```javascript
+shareConnection: true   // default in browsers with BroadcastChannel
+shareConnection: false  // two clients, two contexts, two streams
+```
+
+Node cluster workers do not share. Each worker process opens its own stream.
+
+Turn sharing off if you host untrusted content on the same origin — any same-origin document can send the context RPC and read the flags that come back.
 
 ## Framework Integration Examples
-
-### React
-
-```javascript
-import { useEffect, useState } from 'react';
-import { FlagClient } from 'flagmint-js-sdk';
-
-const client = new FlagClient({
-  apiKey: 'ff_...',
-  context: {
-    kind: "multi",
-    user: { kind: "user", key: 'user123', email: 'user@example.com' }
-  }
-});
-
-export function App() {
-  const [flags, setFlags] = useState({});
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    // Subscribe to flag changes
-    const unsubscribe = client.subscribe((updatedFlags) => {
-      setFlags({
-        showBeta: updatedFlags['show_beta'] ?? false,
-        theme: updatedFlags['theme'] ?? 'light'
-      });
-    });
-
-    // Initialize
-    client.ready()
-      .then(() => setReady(true))
-      .catch((err) => {
-        console.warn('Connection failed, using cached flags:', err.message);
-        setReady(true); // flags may already be set from cache via subscribe
-      });
-
-    return () => {
-      unsubscribe();
-    };
-  }, []);
-
-  if (!ready) return <div>Loading...</div>;
-
-  return (
-    <div className={`theme-${flags.theme}`}>
-      {flags.showBeta && <BetaFeature />}
-    </div>
-  );
-}
-```
-
-<Note>
-  The `subscribe()` callback fires immediately with current flags (including cached flags), so your UI is populated before `ready()` even resolves.
-</Note>
 
 ### Node.js / Express
 
 ```javascript
 import { FlagClient } from 'flagmint-js-sdk';
+import EventSource from 'eventsource';
 import * as asyncCache from 'flagmint-js-sdk/core/cacheHelper.async';
 
 const client = new FlagClient({
-  apiKey: 'ff_...',
+  apiKey: process.env.FLAGMINT_API_KEY,
+  enableFlagmint: true,
+  EventSourceImpl: EventSource,
   cacheAdapter: {
     loadFlags: asyncCache.loadCachedFlags,
     saveFlags: asyncCache.saveCachedFlags,
@@ -327,17 +347,66 @@ const client = new FlagClient({
   onError: (err) => console.error('Flagmint error:', err)
 });
 
-try {
-  await client.ready();
-} catch (err) {
-  console.warn('Flagmint unavailable, continuing with cached flags');
-}
+await client.ready();
 
-app.get('/api/feature', async (req, res) => {
+app.get('/api/feature', (req, res) => {
   const isEnabled = client.getFlag('new_api', false);
   res.json({ enabled: isEnabled });
 });
 ```
+
+<Warning>
+  `updateContext()` changes **that connection’s** context. It is the right tool for a browser user logging in. It is the wrong tool for many concurrent Node HTTP requests with different targeting on one singleton client — wait for client-side rule evaluation, or use a dedicated client per distinct context.
+</Warning>
+
+### React
+
+```javascript
+import { useEffect, useState } from 'react';
+import { FlagClient } from 'flagmint-js-sdk';
+
+const client = new FlagClient({
+  apiKey: 'ff_...',
+  enableFlagmint: true,
+  context: {
+    kind: 'multi',
+    user: { kind: 'user', key: 'user123', email: 'user@example.com' }
+  },
+  onError: (err) => console.warn(err.message)
+});
+
+export function App() {
+  const [flags, setFlags] = useState({});
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = client.subscribe((updatedFlags) => {
+      setFlags({
+        showBeta: updatedFlags['show_beta'] ?? false,
+        theme: updatedFlags['theme'] ?? 'light'
+      });
+    });
+
+    client.ready().then(() => setReady(true));
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  if (!ready) return <div>Loading...</div>;
+
+  return (
+    <div className={'theme-' + flags.theme}>
+      {flags.showBeta && <BetaFeature />}
+    </div>
+  );
+}
+```
+
+<Note>
+  Prefer [`flagmint-react-sdk`](/sdks/react) in React apps. Wrappers construct `FlagClient` for you. Connection sharing lives in this core SDK, not in the wrappers.
+</Note>
 
 ### Vanilla JavaScript
 
@@ -346,17 +415,15 @@ import { FlagClient } from 'flagmint-js-sdk';
 
 const client = new FlagClient({
   apiKey: 'ff_...',
+  enableFlagmint: true,
   context: {
-    kind: "user",
-    user: { kind: "user", key: 'user123' }
-  }
+    kind: 'user',
+    user: { kind: 'user', key: 'user123' }
+  },
+  onError: (err) => console.warn(err.message)
 });
 
-try {
-  await client.ready();
-} catch (err) {
-  console.warn('Using cached flags');
-}
+await client.ready();
 
 const showNewUI = client.getFlag('new_ui', false);
 if (showNewUI) {
@@ -366,30 +433,16 @@ if (showNewUI) {
 
 ## Context Management
 
-### Updating Context
-
-Update user context at any time to re-evaluate flags:
-
 ```javascript
-const client = new FlagClient({
-  apiKey: 'ff_...',
-  context: {
-    kind: "user",
-    user: { kind: "user", key: 'user123' }
-  }
-});
-
-// Update context later (e.g., after login)
-// This triggers a re-fetch of flags with the new context
 await client.updateContext({
-  kind: "multi",
+  kind: 'multi',
   user: {
-    kind: "user",
+    kind: 'user',
     key: 'user123',
     email: 'user@example.com',
   },
   organization: {
-    kind: "organization",
+    kind: 'organization',
     key: 'org456',
     plan: 'premium',
     country: 'CA'
@@ -397,125 +450,96 @@ await client.updateContext({
 });
 ```
 
-<Note>
-  `updateContext()` merges the new context with the existing context and re-fetches flags from the server. If the transport is unavailable, the context is still updated locally but flags will not reflect the change until the connection is restored.
-</Note>
+Await this call. The promise settles when the stream delivers the next `flags` packet (or times out and keeps the previous snapshot). Overlapping calls are serialized.
+
+If the transport is unavailable, the context is still updated locally but flags will not reflect the change until the connection is restored.
 
 ### Persisting Context
-
-Enable context persistence across sessions:
 
 ```javascript
 const client = new FlagClient({
   apiKey: 'ff_...',
+  enableFlagmint: true,
   persistContext: true,
   context: {
-    kind: "user",
-    user: { kind: "user", key: 'user123' }
+    kind: 'user',
+    user: { kind: 'user', key: 'user123' }
   }
 });
 ```
 
 ## Deferred Initialization
 
-For scenarios where you need to set up the client before context is available:
-
 ```javascript
 const client = new FlagClient({
   apiKey: 'ff_...',
+  enableFlagmint: true,
   deferInitialization: true
 });
 
-// Later, when context is ready (e.g., after authentication)
 await client.updateContext({
-  kind: "user",
-  user: { kind: "user", key: 'user123', email: 'user@example.com' }
+  kind: 'user',
+  user: { kind: 'user', key: 'user123', email: 'user@example.com' }
 });
 
-// Calling ready() triggers initialization when deferInitialization is true
-try {
-  await client.ready();
-} catch (err) {
-  console.warn('Connection failed:', err.message);
-}
+await client.ready();
 ```
+
+When `deferInitialization` is `true`, `ready()` triggers initialization.
 
 ## Error Handling
 
-The SDK provides two mechanisms for handling errors:
+Failures are reported through `onError`, never thrown from `ready()`.
 
-### `onError` callback
-
-Use the `onError` option to receive errors without wrapping `ready()` in a try/catch:
+| `error.code` | Meaning |
+|---|---|
+| `ERR_AUTH` | Invalid API key, missing session, inactive subscription |
+| `ERR_RATE_LIMITED` | Evaluation quota exceeded. Check `retryAfter` (seconds) and `resetTime`. Free-tier payloads may include a last snapshot in `data`; the SDK applies it and keeps serving cache |
+| `ERR_INVALID_CONTEXT` | Stream rejected the context payload |
+| `ERR_INTERNAL` | Named SSE `error` from the server |
 
 ```javascript
 const client = new FlagClient({
   apiKey: 'ff_...',
+  enableFlagmint: true,
   onError: (error) => {
-    console.error('Flagmint error:', error);
-    // Report to monitoring service
-    sentry.captureException(error);
+    const { code, retryAfter, resetTime, message } = error;
+    console.error(code, message, retryAfter, resetTime);
   }
 });
+
+await client.ready();
 ```
 
-### `ready()` rejection
+`transportMode: 'sse'` does not fall back to long-polling; it stays on the last cached snapshot (if any). `auto` tries SSE, then long-polling.
 
-`ready()` always rejects on transport failure, regardless of whether `onError` is set. Wrap it in a `try/catch` to prevent unhandled promise rejections:
-
-```javascript
-try {
-  await client.ready();
-} catch (err) {
-  console.warn('Connection failed:', err.message);
-
-  // Cached flags may still be available
-  const flags = client.getFlags();
-  if (Object.keys(flags).length > 0) {
-    console.log('Continuing with cached flags');
-  } else {
-    console.error('No cached flags available — flags will return fallback values');
-  }
-}
-```
-
-<Warning>
-  **Always wrap `ready()` in a try/catch.** If the Flagmint API is unreachable, `ready()` will reject. Without a try/catch, this becomes an unhandled promise rejection that may crash your application. When `enableOfflineCache` is `true` (the default), cached flags are loaded before the transport connects, so `getFlag()` and `getFlags()` will return cached values even after `ready()` rejects.
-</Warning>
-
-### Offline resilience summary
+### Offline resilience
 
 | Scenario | `ready()` | `getFlags()` | `onError` |
 |----------|-----------|-------------|-----------|
 | Transport succeeds | Resolves | Fresh flags | Not called |
-| Transport fails, cache exists | Rejects | Cached flags | Called |
-| Transport fails, no cache | Rejects | `{}` (empty) | Called |
-| Transport fails, cache expired (>24h) | Rejects | `{}` (empty) | Called |
+| Transport fails, cache exists | Resolves | Cached flags | Called |
+| Transport fails, no cache | Resolves | `{}` (empty) | Called |
+| Transport fails, cache expired (>24h) | Resolves | `{}` (empty) | Called |
 
 ### Subscribing to flag updates
-
-Use `subscribe()` to react to flag changes in real time:
 
 ```javascript
 const unsubscribe = client.subscribe((flags) => {
   console.log('Flags updated:', flags);
-  // Update your UI, re-render components, etc.
 });
 
-// The callback fires immediately with current flags,
-// then again whenever flags change via the transport.
-
-// Unsubscribe when done
 unsubscribe();
 ```
 
-## Preview Mode
+The callback fires immediately with current flags (including cache), then on every push. `destroy()` clears subscribers.
 
-For testing or preview environments where you want to bypass remote flag fetching:
+## Preview Mode
 
 ```javascript
 const client = new FlagClient({
   apiKey: 'ff_...',
+  enableFlagmint: false,
   previewMode: true,
   rawFlags: {
     new_checkout: true,
@@ -524,35 +548,27 @@ const client = new FlagClient({
   }
 });
 
-// No network calls — flags are evaluated locally
 const checkout = client.getFlag('new_checkout', false); // true
-const discount = client.getFlag('discount_percent', 0); // 20
 ```
 
-<Note>
-  In preview mode, the client is immediately ready — no `ready()` call is needed (though calling it is safe). Flags are evaluated locally against the provided context using the SDK's built-in evaluation engine.
-</Note>
+In preview mode the client is immediately ready — no network. Flags are evaluated locally against the provided context.
 
 ## API Reference
 
 ### FlagClient Methods
 
-#### `ready(timeoutMs?: number): Promise<void>`
+#### `ready(timeoutMs)`
 
-Wait for the initial connection and flag synchronisation to complete. Rejects if the transport fails. Default timeout is 3000ms.
+Wait for initial connection and flag synchronisation. Always resolves. Default timeout is 3000ms.
 
 ```javascript
-try {
-  await client.ready();       // 3s default timeout
-  await client.ready(5000);   // custom 5s timeout
-} catch (err) {
-  console.warn('Connection failed:', err.message);
-}
+await client.ready();
+await client.ready(5000);
 ```
 
 When `deferInitialization` is `true`, calling `ready()` triggers initialization.
 
-#### `getFlags(): FeatureFlags<T>`
+#### `getFlags()`
 
 Get all current flag values as a shallow copy.
 
@@ -560,7 +576,7 @@ Get all current flag values as a shallow copy.
 const allFlags = client.getFlags();
 ```
 
-#### `getFlag<K>(key: K, fallback?: T): T`
+#### `getFlag(key, fallback)`
 
 Get a single flag value with an optional fallback.
 
@@ -569,9 +585,9 @@ const theme = client.getFlag('theme', 'light');
 const showFeature = client.getFlag('new_feature', false);
 ```
 
-#### `updateContext(context: C): Promise<void>`
+#### `updateContext(context)`
 
-Merge new context with the existing context. Triggers a re-fetch of flags from the server.
+Merge new context with the existing context. On SSE, posts `/evaluator/v2/flags/context` and waits for the next `flags` event.
 
 ```javascript
 await client.updateContext({
@@ -579,22 +595,21 @@ await client.updateContext({
 });
 ```
 
-#### `subscribe(callback: (flags: FeatureFlags<T>) => void): () => void`
+#### `subscribe(callback)`
 
-Subscribe to flag changes. The callback fires immediately with current flags, then on every subsequent update. Returns an unsubscribe function.
+Subscribe to flag changes. Fires immediately, then on every update. Returns an unsubscribe function.
 
 ```javascript
 const unsubscribe = client.subscribe((flags) => {
   console.log('Current flags:', flags);
 });
 
-// Later
 unsubscribe();
 ```
 
 #### `destroy(): void`
 
-Close the transport connection, clear all subscribers, and clean up resources.
+Close the transport, clear subscribers, and leave any share group.
 
 ```javascript
 client.destroy();
@@ -604,7 +619,7 @@ client.destroy();
 
 ```typescript
 interface CacheAdapter<C = any> {
-  loadFlags(apiKey: string, cacheTTL: number): Promise<Record<string, any>> | Record<string, any>;
+  loadFlags(apiKey: string, cacheTTL: number): Promise<Record<string, any>> | Record<string, any> | null;
   saveFlags(apiKey: string, flags: Record<string, any>): Promise<void> | void;
   loadContext(apiKey: string): Promise<C | null> | C | null;
   saveContext(apiKey: string, context: C): Promise<void> | void;
@@ -613,7 +628,7 @@ interface CacheAdapter<C = any> {
 
 ## Evaluation Helpers
 
-The SDK includes low-level evaluation utilities:
+The SDK includes low-level evaluation utilities for preview and custom engines:
 
 ### `evaluateFlagValue(flag, context)`
 
@@ -623,8 +638,6 @@ import { evaluateFlagValue } from 'flagmint-js-sdk/core/evaluation';
 const result = evaluateFlagValue(flagConfig, userContext);
 ```
 
-Applies targeting rules (segment or attribute rules) and rollouts.
-
 ### `evaluateRollout(rollout, context)`
 
 ```javascript
@@ -633,8 +646,6 @@ import { evaluateRollout } from 'flagmint-js-sdk/core/evaluation';
 const rolloutValue = evaluateRollout(rolloutConfig, userContext);
 ```
 
-Supports percentage rollouts with consistent hashing and variant distributions (A/B tests).
-
 ### `isInSegment(context, segment)`
 
 ```javascript
@@ -642,8 +653,6 @@ import { isInSegment } from 'flagmint-js-sdk/core/evaluation';
 
 const inBetaSegment = isInSegment(userContext, betaSegment);
 ```
-
-Evaluates whether a user context matches a segment's criteria.
 
 ### `rolloutUtils`
 
@@ -654,72 +663,57 @@ const percentage = rolloutUtils.hashToPercentage('user123');
 const variant = rolloutUtils.pickVariant('user123', variantConfig);
 ```
 
-Utilities for consistent hashing and variant assignment.
-
-## SDK Tester Tool
-
-Use the [Flagmint SDK Tester](https://github.com/jtad009/flagmint-sdk-tester) for interactive testing:
-
-```bash
-git clone https://github.com/jtad009/flagmint-sdk-tester.git
-cd flagmint-sdk-tester
-npm install
-npm start
-```
-
-Features include dual transport testing (WebSocket + HTTP), a visual context builder, protocol logging and debugging, rollout simulation, and performance monitoring.
-
 ## Troubleshooting
 
 ### Client not connecting
 
-- Verify your API key is correct
-- Check network connectivity
-- Review browser console for errors
-- Ensure CORS is properly configured if using from browser
+- Verify the API key (`ff_…`) and that `enableFlagmint` is `true`
+- In Node, pass `EventSourceImpl` (for example `eventsource`)
+- Check `onError` for `ERR_AUTH` or `ERR_RATE_LIMITED`
+- Ensure CORS allows your origin if you are in a browser
 
 ### Flags not updating
 
-- Check transport mode (WebSocket vs long-polling)
-- Verify context is properly set with `updateContext()`
-- Use `subscribe()` to listen for flag changes
-- If using a custom cache adapter, verify your TTL isn't too aggressive
+- Confirm `transportMode` is `'auto'` or `'sse'`
+- Call `updateContext()` after login and await it
+- Use `subscribe()` to listen for pushes
+- If using a custom cache adapter, verify TTL is not too aggressive
 
-### `ready()` keeps rejecting
+### `ready()` resolved but flags are empty
 
-- Check that the Flagmint API is reachable from your environment
-- If behind a firewall, try `transportMode: 'long-polling'` (WebSocket may be blocked)
-- Wrap `ready()` in a try/catch and fall back to cached flags — see [Error Handling](#error-handling)
+- `onError` was likely called — check the code (`ERR_AUTH`, `ERR_RATE_LIMITED`)
+- Cache may be empty or expired (>24h)
+- `enableFlagmint: false` skips the network entirely
 
-### Performance issues
+### Node cluster / multiple processes
 
-- Consider using long-polling instead of WebSocket for high-traffic scenarios
-- Implement proper cache TTLs with a custom cache adapter
-- Use Redis caching for server-side applications
+- Each worker needs its own `FlagClient` and EventSource connection
+- Do not share one client across forked processes
+- Do not call `updateContext()` per HTTP request on a singleton client
 
-### TypeScript errors
+### Performance
 
-- Ensure you're using the latest version of the SDK
-- Check that your `tsconfig.json` includes proper module resolution
-- Use explicit type parameters: `client.getFlag<boolean>('flag', false)`
+- Prefer SSE for long-running servers (one stream, pushes on publish)
+- Use long-polling for short-lived serverless invocations
+- Use Redis as `cacheAdapter` when you need a shared snapshot across workers
 
 ## Support & Resources
 
 <CardGroup cols={2}>
-  <Card title="Documentation" icon="book" href="https://docs.flagmint.com">
-    Full platform documentation
+  <Card title="Streaming API" icon="bolt" href="/api-reference/evaluate">
+    Handshake, SSE events, and context updates
   </Card>
-  <Card title="GitHub Issues" icon="github" href="https://github.com/flagmint/js-sdk/issues">
-    Report bugs and issues
+  <Card title="Go SDK" icon="code" href="/sdks/go">
+    Server-side Go client
   </Card>
   <Card title="Email Support" icon="envelope" href="mailto:support@flagmint.com">
     Contact our support team
   </Card>
-  <Card title="SDK Tester" icon="flask" href="https://github.com/jtad009/flagmint-sdk-tester">
-    Interactive testing tool
+  <Card title="Privacy & caching" icon="shield" href="/sdks/privacy-and-caching">
+    Browser storage and consent
   </Card>
 </CardGroup>
 
 ## License
 
-MIT © Flagmint
+BSD 3-Clause License © Flagmint Team

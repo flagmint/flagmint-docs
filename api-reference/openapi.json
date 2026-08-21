@@ -11,6 +11,12 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT"
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key",
+        "description": "Environment SDK key (ff_…)"
       }
     },
     "schemas": {}
@@ -22350,14 +22356,667 @@
         "tags": [
           "Evaluation"
         ],
+        "security": [
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "deprecated": true,
+        "description": "One-shot evaluation. Deprecated for streaming clients — use POST /auth/asl-handshake then GET /evaluator/v2/flags/stream. Still used by long-polling.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "description": "Environment SDK key (ff_…)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "context": {
+                    "type": "object"
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "Default Response",
+            "description": "Evaluated flag map",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/asl-handshake": {
+      "post": {
+        "operationId": "aslHandshake",
+        "summary": "Initiate ASL handshake session",
+        "tags": [
+          "Evaluation"
+        ],
+        "security": [
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "description": "Authenticates an environment SDK key and returns a single-use sessionId. Used to open GET /evaluator/v2/flags/stream. The token expires after 300 seconds or on first successful stream open.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "description": "Environment SDK key (ff_…)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session issued. The session token is in data.sessionId.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 200
+                    },
+                    "message": {
+                      "type": "string",
+                      "default": "Resource Found",
+                      "example": "Resource Found"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "sessionId": {
+                          "type": "string",
+                          "description": "Single-use token (fm_asl_ + 64 hex chars). Pass once as the stream query parameter.",
+                          "example": "fm_asl_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        }
+                      },
+                      "required": [
+                        "sessionId"
+                      ]
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 200,
+                  "message": "Resource Found",
+                  "data": {
+                    "sessionId": "fm_asl_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing x-api-key header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 400
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Bad Request"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Missing x-api-key header"
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 400,
+                  "error": "Bad Request",
+                  "message": "Missing x-api-key header"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid, expired, or revoked SDK key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 401
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Invalid API key"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Authentication Error"
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 401,
+                  "error": "Invalid API key",
+                  "message": "Authentication Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Handshake rate limit (1000/min per API key)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 429
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Too Many Requests"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Global tenant connection threshold reached. Please space out device initialization."
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "cooldownSeconds": {
+                          "type": "integer",
+                          "example": 60
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/evaluator/v2/flags/stream": {
+      "get": {
+        "operationId": "evaluateFlagsStream",
+        "summary": "Establish a Server-Sent Events connection for real-time flag updates",
+        "tags": [
+          "Evaluation"
+        ],
+        "security": [],
+        "description": "Opens a text/event-stream. Clients must provide a valid sessionId from POST /auth/asl-handshake. Do not send x-api-key — the session token is the credential and is consumed on open. Named events: connected, then flags. Heartbeats are SSE comments (`: heartbeat`). Quota exhaustion on this request is a quota_exceeded event, then the stream closes.",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Single-use token from POST /auth/asl-handshake"
+          },
+          {
+            "name": "context",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "URL-encoded standard base64 of the UTF-8 JSON evaluation context"
+          },
+          {
+            "name": "sdkVersion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "nodejs or browser"
+          },
+          {
+            "name": "wrapperName",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "wrapperVersion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE stream. First frames are `event: connected` then `event: flags`. Later: `flags` on publish or context re-eval, `quota_exceeded`, or `error`.",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string",
+                  "example": "event: connected\ndata: {\"connectionId\":\"3fa85f64-5717-4562-b3fc-2c963f66afa6\"}\n\nevent: flags\ndata: {\"flags\":{\"dark-mode\":true}}\n\n"
+                },
+                "example": "event: connected\ndata: {\"connectionId\":\"3fa85f64-5717-4562-b3fc-2c963f66afa6\"}\n\nevent: flags\ndata: {\"flags\":{\"dark-mode\":true}}\n\n"
+              }
+            }
+          },
+          "400": {
+            "description": "context query is not valid standard base64 JSON. Body is { statusCode, error: \"invalid_context\" }.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 400
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "invalid_context"
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 400,
+                  "error": "invalid_context"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or already consumed sessionId. Body is { statusCode, error: \"session_id_missing\" }.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 401
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "session_id_missing"
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 401,
+                  "error": "session_id_missing"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Cached session key is incomplete, or org subscription is inactive (invalid_api_key or subscription_inactive).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 403
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "invalid_api_key"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "If Accept includes text/event-stream, quota is a quota_exceeded SSE event (HTTP 200) then close. Otherwise a JSON 429 from the evaluation quota guard."
+          }
+        }
+      }
+    },
+    "/evaluator/v2/flags/context": {
+      "post": {
+        "operationId": "updateFlagsStreamContext",
+        "summary": "Update evaluation context on an open SSE connection",
+        "tags": [
+          "Evaluation"
+        ],
+        "security": [
+          {
+            "apiKeyAuth": []
+          }
+        ],
+        "description": "Queues a context change for an existing SSE connection. HTTP 202 does not include evaluated flags — those arrive as a flags event on the open stream after a 400ms debounce. Authenticate with x-api-key (not Authorization). The key must match the connection's org, project, and environment.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "x-api-key",
+            "required": true,
+            "description": "Environment SDK key (ff_…). Must match the connection's org, project, and environment."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "connectionId",
+                  "context"
+                ],
+                "properties": {
+                  "connectionId": {
+                    "type": "string",
+                    "description": "Value from the stream's connected event"
+                  },
+                  "context": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "description": "Full evaluation context to apply. Flattened once on the server."
+                  }
+                }
+              },
+              "example": {
+                "connectionId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "context": {
+                  "kind": "user",
+                  "key": "user-123",
+                  "country": "IE"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Context update queued. The acknowledgement is in data; this response does not include evaluated flags.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "example": {
+                    "statusCode": 202,
+                    "message": "Resource Found",
+                    "data": {
+                      "statusCode": 202,
+                      "message": "Context configuration update queued successfully"
+                    }
+                  },
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "default": 202,
+                      "example": 202,
+                      "x-default": 202
+                    },
+                    "message": {
+                      "type": "string",
+                      "default": "Resource Found",
+                      "example": "Resource Found",
+                      "x-default": "Resource Found"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "statusCode": {
+                          "type": "integer",
+                          "default": 202,
+                          "example": 202,
+                          "x-default": 202
+                        },
+                        "message": {
+                          "type": "string",
+                          "default": "Context configuration update queued successfully",
+                          "example": "Context configuration update queued successfully",
+                          "x-default": "Context configuration update queued successfully"
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 202,
+                  "message": "Resource Found",
+                  "data": {
+                    "statusCode": 202,
+                    "message": "Context configuration update queued successfully"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing connectionId, context, or x-api-key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 400
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Bad Request"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Missing connectionId or context schema parameters."
+                    }
+                  }
+                },
+                "examples": {
+                  "missingBody": {
+                    "value": {
+                      "statusCode": 400,
+                      "error": "Bad Request",
+                      "message": "Missing connectionId or context schema parameters."
+                    }
+                  },
+                  "missingApiKey": {
+                    "value": {
+                      "statusCode": 400,
+                      "error": "Bad Request",
+                      "message": "Missing x-api-key header"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "SDK key failed validation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 401
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "Invalid API key"
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Authentication Error"
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 401,
+                  "error": "Invalid API key",
+                  "message": "Authentication Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "API key org/project/environment does not match the SSE connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 403
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "You do not have permission to access this resource"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "statusCode": {
+                          "type": "integer",
+                          "example": 403
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "You do not have permission to access this resource",
+                  "data": {
+                    "statusCode": 403
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "connectionId is unknown or the stream is already closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 404
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Resource Not Found"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "statusCode": {
+                          "type": "integer",
+                          "example": 404
+                        },
+                        "error": {
+                          "type": "string",
+                          "example": "Connection not found"
+                        },
+                        "message": {
+                          "type": "string",
+                          "example": "The connection is not found or is dead"
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "Resource Not Found",
+                  "data": {
+                    "statusCode": 404,
+                    "error": "Connection not found",
+                    "message": "The connection is not found or is dead"
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Evaluation quota exceeded. JSON from the evaluation quota guard (this route is not an SSE stream).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "statusCode": {
+                      "type": "integer",
+                      "example": 429
+                    },
+                    "error": {
+                      "type": "string",
+                      "example": "QUOTA_EXCEEDED"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "retryAfter": {
+                      "type": "integer",
+                      "example": 3600
+                    },
+                    "upgradeUrl": {
+                      "type": "string",
+                      "example": "/settings/subscription"
+                    }
+                  }
+                },
+                "example": {
+                  "statusCode": 429,
+                  "error": "QUOTA_EXCEEDED",
+                  "message": "Monthly API call limit exceeded. Please upgrade your plan or contact support.",
+                  "retryAfter": 3600,
+                  "upgradeUrl": "/settings/subscription"
                 }
               }
             }
