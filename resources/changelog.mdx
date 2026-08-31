@@ -3,17 +3,35 @@ title: "Changelog"
 description: "Product and API changes in Flagmint."
 ---
 
-## 2026-08 — SSE evaluation stream (v2)
+Release notes for the Flagmint API and dashboard. SDK package versions are listed in each SDK guide.
 
-The evaluation API and JavaScript SDK now use **Server-Sent Events** instead of WebSocket.
+<Update label="v1.4.0" description="Released August 26, 2026">
 
-**Server (FF-EU)**
+## What's new in the dashboard
 
-- `POST /auth/asl-handshake` — exchange `x-api-key` for a single-use `sessionId` (5 minute TTL, consumed on stream open)
+Release notes now show up in Flagmint so you can see what changed and why—not only in email or the docs.
+
+- Open **What's new** from the sparkles control in the header (unread count when something is new)
+- Each release can include a short summary, why we shipped it, and more detail
+- Breaking or important updates may also email org admins and editors; product updates go to admins who opted into product emails
+
+</Update>
+
+<Update label="v1.3.0" description="Released August 21, 2026">
+
+## Highlights
+
+Real-time JavaScript evaluation now uses **Server-Sent Events**, and flags can **auto-pause when they cause errors** in production.
+
+## SSE evaluation stream
+
+The JavaScript SDK (v2) no longer uses WebSocket.
+
+- `POST /auth/asl-handshake` — exchange `x-api-key` for a single-use `sessionId` (5 minute TTL, consumed when the stream opens)
 - `GET /evaluator/v2/flags/stream` — `text/event-stream` with `connected`, `flags`, `quota_exceeded`, and `error` events; heartbeats are SSE comments
-- `POST /evaluator/v2/flags/context` — queue a context change (`202`); flags are pushed on the open stream after a 400ms debounce
-- Stream opens and context posts go through the evaluation quota guard
-- `POST /evaluator/evaluate` remains for one-shot and long-polling clients
+- `POST /evaluator/v2/flags/context` — queue a context change (`202`); flags are pushed on the open stream after a short debounce
+- Stream open and context posts count against evaluation quota
+- `POST /evaluator/evaluate` remains for one-shot and long-polling clients (deprecated in the API docs)
 - Go SDK continues to use WebSocket at `/ws/sdk`
 
 **JavaScript SDK (`flagmint-js-sdk` v2)**
@@ -25,3 +43,22 @@ The evaluation API and JavaScript SDK now use **Server-Sent Events** instead of 
 - Reconnects handshake for a fresh `sessionId` before opening EventSource again
 
 See the [Node.js / JavaScript SDK](/sdks/nodejs) and [evaluation API](/api-reference/evaluate).
+
+## Application errors and guardrails
+
+Feature flags can now measure whether a served variation hurt users — counts only, not crash payloads.
+
+- SDKs report via `trackError()` → `POST /evaluator/events`, attributed to the variation that was served
+- Analytics Tracking must be on for that flag; ingest does not use evaluation quota
+- Per-environment **guardrails**: error-rate threshold, minimum evaluations, in-app and email notify, auto-pause
+- Auto-pause turns the env rollout off, or the flag off if there is no rollout, and **broadcasts to connected SDKs** the same way the inactive/active toggle does
+- **QA fire drill** trips the checker immediately with a synthetic burst (does not change Metrics). Rate limited to 5 runs per organization per hour
+
+## Other changes
+
+- New organizations get default **Live** and **Staging** environments on setup
+- Deleting a variation detaches it from variant rollouts and rebalances weights
+- Deleted flags are no longer evaluated
+- API responses include `X-App-Version`
+
+</Update>
