@@ -82,10 +82,11 @@
           {
             "group": "Resources",
             "pages": [
-              "resources/migrate-from-launchdarkly",
-              "resources/best-practices",
-              "resources/troubleshooting",
-              "resources/changelog"
+            "resources/migrate-from-launchdarkly",
+            "resources/best-practices",
+            "resources/qa-scenarios",
+            "resources/troubleshooting",
+            "resources/changelog"
             ]
           }
         ]

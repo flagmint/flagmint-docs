@@ -1,0 +1,337 @@
+---
+title: "QA Release Strategy Scenarios"
+description: "Practice choosing the right feature flag strategy for real-world situations, then build them in Flagmint."
+---
+
+## How to use this guide
+
+Each scenario below describes a real situation your team might face. Read it, decide which release strategy you'd use, then reveal the answer and follow the steps to set it up in Flagmint. By the end you'll know exactly when to reach for a **kill switch**, a **gradual rollout**, or an **A/B test** — and how to configure each one.
+
+<Tip>
+  Keep the [Evaluation Logic](/getting-started/evaluation-logic) and [Rollouts](/concepts/rollouts) pages open in a separate tab as you work through these.
+</Tip>
+
+---
+
+## Scenario 1: The payment outage
+
+### Situation
+
+Your team shipped a new checkout flow last week. It's been running fine — until 2 AM on a Tuesday. The on-call alert fires: the new flow is returning 500 errors for roughly 30% of checkout attempts. The issue is in a third-party payment provider integration that your team can't fix right now. A hotfix deployment would take 40 minutes minimum.
+
+**You need to disable the new checkout flow for all users, immediately, without redeploying.**
+
+<AccordionGroup>
+  <Accordion title="Which strategy would you use?">
+    **Kill Switch**
+
+    A kill switch is a boolean flag that is **ON by default**. When you deactivate the flag, every SDK evaluation immediately returns the control (old) variation — no deployment, no cache flush delay, no coordination required.
+
+    **Why not the others?**
+    - A gradual rollout won't help — you need 0% exposure *now*, not a slow ramp-down.
+    - An A/B test is for learning, not emergency recovery.
+
+    Kill switches are designed specifically for this: instant, full revert with a single toggle.
+  </Accordion>
+</AccordionGroup>
+
+### Set it up in Flagmint
+
+<Steps>
+  <Step title="Create the flag">
+    In your project, go to **Flags → New Flag**. Choose the **Kill Switch** template.
+
+    Give it a meaningful name like `checkout_v2_enabled`. The template pre-configures it as a boolean flag that is active by default.
+  </Step>
+
+  <Step title="Wrap the new checkout flow in your code">
+    Evaluate the flag wherever you branch between old and new checkout:
+
+    ```js
+    const flags = await flagmint.evaluate(context);
+
+    if (flags.checkout_v2_enabled) {
+      renderNewCheckout();
+    } else {
+      renderOldCheckout();
+    }
+    ```
+
+    When the flag is active, users hit the new flow. When you deactivate it, they fall back to the old one.
+  </Step>
+
+  <Step title="Test the kill switch before you need it">
+    In **Staging**, toggle the flag off and verify users route to the old checkout. Toggle it back on and confirm the new flow returns. Do this before the flag matters in production — never test a kill switch for the first time during an incident.
+  </Step>
+
+  <Step title="Simulate the outage in QA">
+    1. Set the flag **active** (new checkout visible).
+    2. Confirm the new checkout flow renders and evaluations return `true`.
+    3. Deactivate the flag.
+    4. Confirm **all** evaluations immediately return `false` and the old checkout renders — no redeploy, no delay.
+    5. Re-activate and verify recovery.
+  </Step>
+</Steps>
+
+### What to verify as QA
+
+<CardGroup cols={2}>
+  <Card title="Immediate effect" icon="bolt">
+    Deactivation must take effect within the SDK's stream update window (milliseconds for SSE, near-instant). No stale evaluations should return `true` after the flag is off.
+  </Card>
+
+  <Card title="100% coverage" icon="users">
+    Every user — regardless of segment, plan, or region — must see the fallback when the kill switch is off. No partial exposure.
+  </Card>
+
+  <Card title="Re-activation works" icon="rotate-right">
+    Toggling back on should restore the new flow without requiring a code change or deployment.
+  </Card>
+
+  <Card title="Audit trail" icon="clock">
+    Check the **Audit Log** in the dashboard. The deactivation and reactivation events should be timestamped and attributed to the correct user.
+  </Card>
+</CardGroup>
+
+<Note>
+  Read more: [Kill Switch concept](/concepts/flags) · [Evaluation Logic](/getting-started/evaluation-logic)
+</Note>
+
+---
+
+## Scenario 2: The rebuilt search engine
+
+### Situation
+
+The engineering team has completely rewritten the search backend. Benchmarks show it's 3x faster, but it's never handled real production traffic at scale. There are also concerns about edge cases in rare query patterns that internal testing couldn't cover.
+
+**You want to start exposing it to a small slice of users, watch error rates and latency, and expand the rollout gradually over the next week — automatically, without manual steps each day.**
+
+<AccordionGroup>
+  <Accordion title="Which strategy would you use?">
+    **Gradual Rollout**
+
+    A gradual rollout lets you set a starting percentage and a time-based increment — for example, start at 5%, increase by 10% every 24 hours. Flagmint handles the ramp automatically. You only need to intervene if something goes wrong (set it back to 0% or deactivate the flag entirely).
+
+    **Why not the others?**
+    - A kill switch is all-or-nothing. You want progressive exposure, not a binary flip.
+    - An A/B test measures variation *preference* or *outcome*. Here you're not comparing two permanent options — you're validating that a new implementation is safe to fully ship.
+  </Accordion>
+</AccordionGroup>
+
+### Set it up in Flagmint
+
+<Steps>
+  <Step title="Create the flag">
+    Go to **Flags → New Flag** and choose the **Gradual Rollout** template. This gives you a boolean flag starting at 0% rollout.
+  </Step>
+
+  <Step title="Configure the rollout schedule">
+    Navigate to the flag's **Rollout** tab and select the **Gradual** strategy. Set:
+
+    | Field | Example value |
+    |-------|---------------|
+    | Starting percentage | `5` |
+    | Increment | `10` |
+    | Interval | `24 hours` |
+    | Start at | Tomorrow at 09:00 |
+
+    At 5% → 15% → 25% → 35%... the platform advances the rollout automatically each day. Users are bucketed consistently — the same user always sees the same variation within their cohort.
+  </Step>
+
+  <Step title="Wrap the new search in your code">
+    ```js
+    const flags = await flagmint.evaluate({ userId: user.id });
+
+    const results = flags.new_search_engine
+      ? await newSearchBackend(query)
+      : await legacySearchBackend(query);
+    ```
+  </Step>
+
+  <Step title="Set up your rollback plan">
+    Before activating, agree on the metrics threshold that triggers a rollback (e.g. error rate > 1% or p95 latency > 2s). Know the two rollback paths:
+
+    1. **Set rollout to 0%** — pauses the rollout, existing cohorts revert to fallback.
+    2. **Deactivate the flag** — instant kill switch effect for 100% of users.
+  </Step>
+</Steps>
+
+### What to verify as QA
+
+<CardGroup cols={2}>
+  <Card title="Consistent bucketing" icon="fingerprint">
+    The same user ID must always evaluate to the same variation within a rollout cohort. Make 10+ evaluation calls with the same context — the result must never flip.
+  </Card>
+
+  <Card title="Percentage accuracy" icon="chart-pie">
+    At 10% rollout, approximately 10% of a large sample should evaluate to `true`. Use the SDK tester or load tester to send 1,000+ evaluations and check the distribution.
+  </Card>
+
+  <Card title="Automatic increment fires" icon="calendar">
+    After the configured interval, the rollout percentage should increase by the configured increment without manual action.
+  </Card>
+
+  <Card title="Rollback to 0% works instantly" icon="shield">
+    Set the rollout to 0% and confirm that all evaluations return the fallback variation immediately, regardless of which cohort a user was previously in.
+  </Card>
+</CardGroup>
+
+<Note>
+  Read more: [Rollouts concept](/concepts/rollouts) · [Evaluation Logic](/getting-started/evaluation-logic)
+</Note>
+
+---
+
+## Scenario 3: The button colour experiment
+
+### Situation
+
+The growth team wants to run an experiment on the signup page. They have three hypotheses about the primary CTA button:
+
+- **Variant A:** Green button (`#22c55e`) — "feels trustworthy"
+- **Variant B:** Orange button (`#f97316`) — "feels urgent"
+- **Variant C:** Blue button (`#3b82f6`) — "matches brand"
+
+They want equal traffic split across all three variants and a clean way to measure conversion rate per variant. Whichever variant wins gets shipped permanently; the others get dropped.
+
+**You need to serve each variant to a distinct, stable third of your users, with no overlap.**
+
+<AccordionGroup>
+  <Accordion title="Which strategy would you use?">
+    **A/B Test (Variant rollout)**
+
+    An A/B test in Flagmint uses the **variant** rollout strategy. You define multiple variations (each with a value — in this case a hex colour string), assign weights that sum to 100, and Flagmint consistently buckets users into one variation for the life of the experiment.
+
+    **Why not the others?**
+    - A kill switch is boolean — you can't represent three colour options.
+    - A gradual rollout ramps a single variation over time. It can't split traffic across multiple named options with individual weights.
+
+    The A/B test template sets this up for you with equal weights by default.
+  </Accordion>
+</AccordionGroup>
+
+### Set it up in Flagmint
+
+<Steps>
+  <Step title="Create the flag">
+    Go to **Flags → New Flag** and choose the **A/B Test** template. Select `string` as the value type (you'll store the hex colour as the value).
+  </Step>
+
+  <Step title="Define the variations">
+    Navigate to the **Variations** tab and set up three variations:
+
+    | Key | Value | Weight |
+    |-----|-------|--------|
+    | `green` | `#22c55e` | 33 |
+    | `orange` | `#f97316` | 34 |
+    | `blue` | `#3b82f6` | 33 |
+
+    Weights must sum to exactly 100. The platform validates this.
+  </Step>
+
+  <Step title="Configure the rollout">
+    On the **Rollout** tab, select the **Variant** strategy and confirm the weights are set. The salt (used for consistent hashing) is generated automatically — don't change it mid-experiment, as it would re-bucket users and corrupt your results.
+  </Step>
+
+  <Step title="Use the flag value in your UI">
+    ```js
+    const flags = await flagmint.evaluate({ userId: user.id });
+
+    // flags.signup_cta_colour returns "#22c55e", "#f97316", or "#3b82f6"
+    button.style.backgroundColor = flags.signup_cta_colour;
+    ```
+  </Step>
+
+  <Step title="End the experiment cleanly">
+    Once conversion data is conclusive, pick a winner and update the **default variation** to the winning colour. Then archive the flag or remove the rollout. Avoid leaving the experiment running indefinitely once a decision is made.
+  </Step>
+</Steps>
+
+### What to verify as QA
+
+<CardGroup cols={2}>
+  <Card title="Even distribution" icon="scale-balanced">
+    With 33/34/33 weights and a large sample, each variant should receive roughly equal traffic. Use the flag metrics or load tester to confirm no variant is over- or under-represented by more than ±5%.
+  </Card>
+
+  <Card title="User stickiness" icon="lock">
+    Once bucketed, a user must always see the same variant. Call the evaluation multiple times with the same user ID across different sessions — the colour must never change mid-experiment.
+  </Card>
+
+  <Card title="Salt integrity" icon="key">
+    Changing the rollout salt re-buckets all users. Verify that modifying the salt in a test environment causes the distribution to shift, and that it does *not* change automatically on its own.
+  </Card>
+
+  <Card title="Default variation fallback" icon="circle-dot">
+    If a user evaluates the flag before any rollout is configured, they should receive the **default variation**. Set up a test context with no rollout active and confirm the fallback value is returned.
+  </Card>
+</CardGroup>
+
+<Note>
+  Read more: [Flags concept](/concepts/flags) · [Rollouts concept](/concepts/rollouts) · [Evaluation Logic](/getting-started/evaluation-logic)
+</Note>
+
+---
+
+## Quick reference
+
+| Scenario type | Right strategy | Flag type | Key signal |
+|---------------|---------------|-----------|------------|
+| Emergency disable, instant revert | **Kill Switch** | Boolean | "Off by default" logic, needs 0% exposure *now* |
+| Safe progressive launch, validate at scale | **Gradual Rollout** | Boolean | Time-based increment, want automatic ramp |
+| Compare multiple options, measure outcome | **A/B Test** | String / Number / JSON | Multiple named variants, need stable cohorts |
+
+---
+
+## Choosing between strategies — decision tree
+
+<Steps>
+  <Step title="Do you need an instant off switch for emergencies?">
+    **Yes** → Kill Switch
+    
+    **No** → Continue
+  </Step>
+
+  <Step title="Are you comparing two or more distinct options to pick a winner?">
+    **Yes** → A/B Test
+    
+    **No** → Continue
+  </Step>
+
+  <Step title="Are you releasing one new thing and want to limit exposure over time?">
+    **Yes** → Gradual Rollout
+
+    **Still unsure?** Check [Evaluation Logic](/getting-started/evaluation-logic) or reach out to the team.
+  </Step>
+</Steps>
+
+---
+
+## Related
+
+<CardGroup cols={3}>
+  <Card title="Evaluation Logic" icon="sitemap" href="/getting-started/evaluation-logic">
+    How Flagmint evaluates flags end-to-end
+  </Card>
+
+  <Card title="Rollouts" icon="chart-line" href="/concepts/rollouts">
+    Global and targeted rollout strategies
+  </Card>
+
+  <Card title="Flags" icon="flag" href="/concepts/flags">
+    Flag types, variations, and lifecycle
+  </Card>
+
+  <Card title="Targeting Rules" icon="crosshairs" href="/concepts/targeting-rules">
+    Audience-based variation assignment
+  </Card>
+
+  <Card title="Segments" icon="users" href="/concepts/segments">
+    Reusable audience definitions
+  </Card>
+
+  <Card title="Troubleshooting" icon="wrench" href="/resources/troubleshooting">
+    Debug common evaluation issues
+  </Card>
+</CardGroup>
