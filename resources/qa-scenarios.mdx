@@ -5,7 +5,7 @@ description: "Practice choosing the right feature flag strategy for real-world s
 
 ## How to use this guide
 
-Each scenario below describes a real situation your team might face. Read it, decide which release strategy you'd use, then reveal the answer and follow the steps to set it up in Flagmint. By the end you'll know exactly when to reach for a **kill switch**, a **gradual rollout**, or an **A/B test** — and how to configure each one.
+Each scenario below describes a real situation your team might face. Read it, decide which release strategy you'd use, then reveal the answer and follow the steps to set it up in Flagmint. By the end you'll know exactly when to reach for a **kill switch**, a **gradual rollout**, an **A/B test**, or a **targeting rule** — and how to configure each one.
 
 <Tip>
   Keep the [Evaluation Logic](/getting-started/evaluation-logic) and [Rollouts](/concepts/rollouts) pages open in a separate tab as you work through these.
@@ -274,13 +274,104 @@ They want equal traffic split across all three variants and a clean way to measu
 
 ---
 
+## Scenario 4: The enterprise-only feature
+
+### Situation
+
+Your team has built a new analytics dashboard. It's stable, fully tested, and ready to ship — but only for enterprise plan customers. Free and pro users should continue to see the existing dashboard indefinitely. There is no gradual ramp, no experiment, no time-based schedule. The rule is simple: **enterprise users always get the new dashboard; everyone else never does**, regardless of any global rollout settings.
+
+<AccordionGroup>
+  <Accordion title="Which strategy would you use?">
+    **Targeting Rule**
+
+    A targeting rule is an explicit, condition-based assignment. You define a condition (e.g. `plan = "enterprise"`) and a fixed variation to return when that condition is true. It fires before any rollout in the evaluation pipeline, so it cannot be overridden by a global rollout percentage.
+
+    **Why not the others?**
+    - A kill switch is all-or-nothing for *everyone*. You need different behaviour for different users.
+    - A gradual rollout exposes a percentage of *all* traffic. You'd end up giving some free users the new dashboard and some enterprise users the old one — neither is acceptable.
+    - An A/B test is for measuring outcomes between variants. You're not running an experiment; you have a permanent rule.
+
+    Targeting rules are the right tool whenever the answer to "who gets what" is determined by *who the user is*, not by chance or time.
+  </Accordion>
+</AccordionGroup>
+
+### Set it up in Flagmint
+
+<Steps>
+  <Step title="Create the flag">
+    Go to **Flags → New Flag**. There's no dedicated template for targeting rules — use a plain boolean flag. Name it `new_analytics_dashboard`.
+  </Step>
+
+  <Step title="Add a targeting rule">
+    Navigate to the **Targeting** tab and click **Add Rule**. Configure:
+
+    | Field | Value |
+    |-------|-------|
+    | Condition | `plan` **equals** `enterprise` |
+    | Serve | `true` (the new dashboard) |
+    | Priority | 0 (first rule evaluated) |
+
+    Leave the global rollout at **0%** and the default variation as `false`. This means: enterprise users get `true`, everyone else gets `false`.
+  </Step>
+
+  <Step title="Understand the evaluation order">
+    When Flagmint evaluates this flag it checks in this order:
+
+    1. Is the flag active? (kill switch)
+    2. Does the user match a targeting rule? → **enterprise users matched here → return `true`, stop**
+    3. Does the user match a targeted rollout? (not configured)
+    4. Global rollout (0%)
+    5. Default variation → `false`
+
+    Enterprise users never reach steps 3–5. Non-enterprise users fall through to the `false` default.
+  </Step>
+
+  <Step title="Verify with multiple contexts">
+    Open the SDK tester and test the following contexts one by one:
+
+    | Context | Expected result |
+    |---------|-----------------|
+    | `plan: enterprise` | `true` |
+    | `plan: pro` | `false` |
+    | `plan: free` | `false` |
+    | No plan attribute | `false` |
+  </Step>
+</Steps>
+
+### What to verify as QA
+
+<CardGroup cols={2}>
+  <Card title="Rule fires before rollout" icon="list-ol">
+    Set global rollout to 50% and re-test. Enterprise users must still always get `true`, and non-enterprise users must follow the rollout — not be affected by the targeting rule.
+  </Card>
+
+  <Card title="Condition is exact match" icon="equals">
+    Test `plan: Enterprise` (capital E) and `plan: ENTERPRISE`. Depending on how your attributes are normalised, these may or may not match — verify the behaviour is consistent with what engineering expects.
+  </Card>
+
+  <Card title="Missing attribute falls through" icon="circle-question">
+    Send a context with no `plan` field at all. The rule should not match and the user should receive the default `false` variation — not an error.
+  </Card>
+
+  <Card title="Rule priority is respected" icon="arrow-up-1-9">
+    If a second targeting rule exists (e.g. `country = "FR"` → `false`), verify that rules are evaluated in priority order and the first match wins.
+  </Card>
+</CardGroup>
+
+<Note>
+  Read more: [Targeting Rules concept](/concepts/targeting-rules) · [Segments](/concepts/segments) · [Evaluation Logic](/getting-started/evaluation-logic)
+</Note>
+
+---
+
 ## Quick reference
 
 | Scenario type | Right strategy | Flag type | Key signal |
 |---------------|---------------|-----------|------------|
-| Emergency disable, instant revert | **Kill Switch** | Boolean | "Off by default" logic, needs 0% exposure *now* |
-| Safe progressive launch, validate at scale | **Gradual Rollout** | Boolean | Time-based increment, want automatic ramp |
+| Emergency disable, instant revert | **Kill Switch** | Boolean | Needs 0% exposure *now*, no conditions |
+| Safe progressive launch, validate at scale | **Gradual Rollout** | Boolean | Time-based ramp, want automatic increment |
 | Compare multiple options, measure outcome | **A/B Test** | String / Number / JSON | Multiple named variants, need stable cohorts |
+| Different users always get different things | **Targeting Rule** | Any | Identity-based, permanent, fires before rollouts |
 
 ---
 
@@ -290,6 +381,12 @@ They want equal traffic split across all three variants and a clean way to measu
   <Step title="Do you need an instant off switch for emergencies?">
     **Yes** → Kill Switch
     
+    **No** → Continue
+  </Step>
+
+  <Step title="Is the assignment based on who the user is — permanently?">
+    **Yes** → Targeting Rule (e.g. enterprise users always get X)
+
     **No** → Continue
   </Step>
 
