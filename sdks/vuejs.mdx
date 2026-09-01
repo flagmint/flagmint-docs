@@ -5,7 +5,11 @@ description: "Feature flag SDK for Vue 2 and Vue 3 applications with real-time u
 
 # Flagmint Vue.js SDK
 
-A lightweight and powerful feature flag SDK for Vue 2 and Vue 3 applications with real-time updates via WebSocket.
+A lightweight and powerful feature flag SDK for Vue 2 and Vue 3 applications with real-time updates via SSE (Server-Sent Events).
+
+<Note>
+  **v2.0.0+** uses `transportMode: 'sse'`. If you are on an older version, use `'websocket'` instead.
+</Note>
 
 ## Features
 
@@ -14,7 +18,7 @@ A lightweight and powerful feature flag SDK for Vue 2 and Vue 3 applications wit
     Works seamlessly with both Vue 2 and Vue 3
   </Card>
   <Card title="Real-time Updates" icon="bolt">
-    WebSocket and HTTP long-polling support
+    SSE and HTTP long-polling support
   </Card>
   <Card title="Segment Targeting" icon="bullseye">
     Advanced targeting rules and rollout strategies
@@ -104,12 +108,12 @@ The `createFlagmintPlugin` accepts a `FlagClientOptions` object:
 | `persistContext` | `boolean` | `false` | Store context in localStorage |
 | `enableOfflineCache` | `boolean` | `true` | Enable offline flag caching |
 | `cacheTTL` | `number` | `3600000` | Cache time-to-live (1 hour default) |
-| `transportMode` | `'auto' \| 'websocket' \| 'long-polling'` | `'auto'` | Connection mode (auto tries WebSocket first) |
+| `transportMode` | `'auto' \| 'sse' \| 'long-polling'` | `'auto'` | Connection mode (auto tries SSE first; `'websocket'` in versions prior to 2.0.0) |
 | `previewMode` | `boolean` | `false` | Local-only mode (no network calls) |
 | `onError` | `(err: Error) => void` | `undefined` | Error callback handler |
 
 <Tip>
-  Use `transportMode: 'auto'` for the best experience - it automatically uses WebSocket with fallback to long-polling.
+  Use `transportMode: 'auto'` for the best experience — it automatically uses SSE with fallback to long-polling.
 </Tip>
 
 ## Using Flags
@@ -359,11 +363,11 @@ Flags support sophisticated targeting with rules and segments:
 
 ## Real-time Updates
 
-With WebSocket transport, flags update automatically when changed in Flagmint:
+With SSE transport, flags update automatically when changed in Flagmint:
 
 ```javascript
 createFlagmintPlugin({
-  transportMode: 'auto', // or 'websocket'
+  transportMode: 'auto', // or 'sse'
   apiKey: 'your-api-key',
   context: { user_id: 'abc123' }
 });
@@ -372,10 +376,12 @@ createFlagmintPlugin({
 ```
 
 <Info>
-  **Transport Modes:**
-  - `auto` - Tries WebSocket, falls back to long-polling
-  - `websocket` - WebSocket only (fails if unavailable)
+  **Transport Modes (v2.0.0+):**
+  - `auto` - Tries SSE, falls back to long-polling
+  - `sse` - SSE only (fails if unavailable)
   - `long-polling` - HTTP polling only
+
+  On versions prior to 2.0.0, use `'websocket'` in place of `'sse'`.
 </Info>
 
 ## Testing Your Integration
@@ -387,7 +393,7 @@ npx flagmint-sdk-tester
 ```
 
 The SDK Tester provides:
-- ✅ Both WebSocket and REST transport testing
+- ✅ Both SSE and REST transport testing
 - ✅ Visual context builder
 - ✅ Protocol event logging
 - ✅ Flag evaluation verification
@@ -515,7 +521,7 @@ await this.$flagmintReady;
   </Accordion>
 
   <Accordion title="Use Auto Transport" icon="arrows-rotate">
-    Set `transportMode: 'auto'` to get WebSocket with automatic fallback to long-polling if WebSocket fails.
+    Set `transportMode: 'auto'` to get SSE with automatic fallback to long-polling if the SSE connection fails.
   </Accordion>
 </AccordionGroup>
 
@@ -593,11 +599,103 @@ const variant = client.getFlag('experiment-design', 'control');
 - [x] Rollout strategies (percentage & variant)
 - [x] Preview/local-only mode
 - [x] Composables and mixins
-- [x] WebSocket + long-polling fallback
+- [x] SSE + long-polling fallback
 - [x] Feature component
 - [ ] SSR / Nuxt support
 - [ ] Variant analytics
 - [ ] Remote override via devtools
+
+## Analytics & Guardrails
+
+<Note>
+  `trackError` and `track` are available from **flagmint-vuejs-feature-flags 2.0.0**. Support for the Go SDK and others is coming soon.
+</Note>
+
+The plugin exposes `trackError` and `track` for sending application events back to Flagmint. Both require **Analytics Tracking** to be enabled for the flag in the dashboard, and both are no-ops in `previewMode`.
+
+### `trackError`
+
+Records an error event attributed to a flag. This is the signal that feeds [Guardrails](/concepts/guardrails). Place it inside the catch block of code gated by a feature flag.
+
+**Vue 3 (Composition API)**
+
+```vue
+<script setup>
+import { useFlagClient, useFlagmintReady } from 'flagmint-vuejs-feature-flags';
+
+await useFlagmintReady();
+const client = useFlagClient();
+
+const handleCheckout = async () => {
+  try {
+    await processPayment();
+  } catch (err) {
+    client.trackError('new_checkout_flow', err, { step: 'payment' });
+    throw err;
+  }
+};
+</script>
+```
+
+**Vue 2 (Options API)**
+
+```javascript
+export default {
+  async mounted() {
+    await this.$flagmintReady;
+  },
+  methods: {
+    async handleCheckout() {
+      try {
+        await processPayment();
+      } catch (err) {
+        this.$flagmint.trackError('new_checkout_flow', err, { step: 'payment' });
+        throw err;
+      }
+    }
+  }
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this error to |
+| `error` | `unknown` | Optional. `name` and `message` are extracted (max 500 chars each). Stack traces are never sent. |
+| `extra` | `Record<string, unknown>` | Optional. Additional context — order IDs, step names, etc. |
+
+### `track`
+
+Records a custom analytics event attributed to a flag. Use this for conversion tracking and A/B test outcomes. Custom events appear in the flag's analytics panel but do **not** count toward the guardrail error rate.
+
+**Vue 3**
+
+```vue
+<script setup>
+import { useFlagClient, useFlagmintReady } from 'flagmint-vuejs-feature-flags';
+
+await useFlagmintReady();
+const client = useFlagClient();
+
+// After a successful checkout
+client.track('new_checkout_flow', 'checkout_completed', { orderId: 'ord_abc123' });
+</script>
+```
+
+**Vue 2**
+
+```javascript
+this.$flagmint.track('new_checkout_flow', 'checkout_completed', { orderId: 'ord_abc123' });
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this event to |
+| `eventName` | `string` | A name for this event type, e.g. `'checkout_completed'` |
+| `extra` | `Record<string, unknown>` | Optional. Any additional data to attach |
+
+Both methods are fire-and-forget — they never throw and events are batched and flushed every 2 seconds.
+
+---
 
 ## Troubleshooting
 
@@ -608,7 +706,7 @@ const variant = client.getFlag('experiment-design', 'control');
     **Solutions:**
     - Verify your API key is correct
     - Check that you're awaiting `$flagmintReady` or `useFlagmintReady()`
-    - Ensure your network allows WebSocket connections to api.flagmint.com
+    - Ensure your network allows SSE connections to api.flagmint.com
     - Check browser console for errors
   </Accordion>
 
@@ -616,8 +714,8 @@ const variant = client.getFlag('experiment-design', 'control');
     **Symptoms:** Changes in Flagmint dashboard don't reflect in app
     
     **Solutions:**
-    - Confirm `transportMode` is set to `'auto'` or `'websocket'`
-    - Check WebSocket connection in browser DevTools (Network tab)
+    - Confirm `transportMode` is set to `'auto'` or `'sse'` (or `'websocket'` if on a version prior to 2.0.0)
+    - Check SSE connection in browser DevTools (Network tab — look for `text/event-stream` requests)
     - Verify `autoRefresh: true` is set
     - Ensure you're using `getReactiveFlags()` not cached `getFlag()` calls
   </Accordion>

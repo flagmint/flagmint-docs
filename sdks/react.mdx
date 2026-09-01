@@ -3,7 +3,11 @@ title: "React SDK"
 description: "Integrate Flagmint feature flags into your React application."
 ---
 
-The Flagmint React SDK provides hooks for evaluating feature flags in React and Next.js applications. Flags update in real-time via WebSocket.
+The Flagmint React SDK provides hooks for evaluating feature flags in React and Next.js applications. Flags update in real-time via SSE (Server-Sent Events).
+
+<Note>
+  **v1.2.1+** uses `transportMode: 'sse'`. If you are on an older version, use `'websocket'` instead.
+</Note>
 
 ## Installation
 
@@ -41,7 +45,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <FlagmintProvider
       options={{
         apiKey: process.env.NEXT_PUBLIC_FLAGMINT_KEY!,
-        transportMode: 'websocket',
+        transportMode: 'sse',
       }}
     >
       {children}
@@ -58,7 +62,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <FlagmintProvider
     options={{
       apiKey: import.meta.env.VITE_FLAGMINT_KEY,
-      transportMode: 'websocket',
+      transportMode: 'sse',
     }}
   >
     <App />
@@ -73,7 +77,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 </Note>
 
 <Warning>
-  Do not place `FlagmintProvider` inside a nested layout or page component. Doing so creates a new WebSocket connection on every route navigation.
+  Do not place `FlagmintProvider` inside a nested layout or page component. Doing so creates a new SSE connection on every route navigation.
 </Warning>
 
 ### Provider Props
@@ -90,7 +94,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 |--------|------|---------|-------------|
 | `apiKey` | `string` | Required | Your environment's SDK key (starts with `ff_`) |
 | `context` | `object` | `undefined` | Evaluation context (user, org attributes) |
-| `transportMode` | `'auto' \| 'websocket' \| 'long-polling'` | `'auto'` | Connection method |
+| `transportMode` | `'auto' \| 'sse' \| 'long-polling'` | `'auto'` | Connection method (`'websocket'` in versions prior to 1.2.1) |
 | `enableOfflineCache` | `boolean` | `true` | Cache flags in localStorage for offline use |
 | `persistContext` | `boolean` | `false` | Persist context across page reloads |
 | `onError` | `(error: Error) => void` | `undefined` | Error handler callback |
@@ -196,7 +200,7 @@ export function FlagmintWithAuth({ children }: { children: React.ReactNode }) {
     <FlagmintProvider
       options={{
         apiKey,
-        transportMode: 'websocket',
+        transportMode: 'sse',
         context: {
           kind: 'multi',
           user: { kind: 'user', key: user.id, email: user.email },
@@ -216,11 +220,11 @@ This ensures public pages (login, signup, marketing) render immediately without 
 
 | Mode | Best For | Real-Time? |
 |------|----------|-----------|
-| `websocket` | Browser apps, dashboards | Yes — server pushes updates instantly |
+| `sse` | Browser apps, dashboards | Yes — server pushes updates instantly |
 | `long-polling` | Server-side rendering, restricted networks | No — polls every 10 seconds |
-| `auto` | Most apps (default) | Tries WebSocket, falls back to polling |
+| `auto` | Most apps (default) | Tries SSE, falls back to polling |
 
-For client-side React apps, `websocket` is recommended. The SDK maintains a single persistent connection and receives flag updates the moment they change in the dashboard.
+For client-side React apps, `sse` is recommended. The SDK maintains a single persistent connection and receives flag updates the moment they change in the dashboard.
 
 ## Offline & Caching
 
@@ -249,6 +253,78 @@ const config = useFlag<FeatureConfig>('api-config', {
 console.log(config.maxRetries); // ✓ type-safe
 ```
 
+## Analytics & Guardrails
+
+<Note>
+  `trackError` and `track` are available from **flagmint-react-sdk 1.2.1**. Support for the Go SDK and others is coming soon.
+</Note>
+
+The `useFlagmint()` hook exposes `trackError` and `track` for sending application events back to Flagmint. Both require **Analytics Tracking** to be enabled for the flag in the dashboard.
+
+### `trackError`
+
+Records an error event attributed to a flag. This is the signal that feeds [Guardrails](/concepts/guardrails) — every call increments the error count for that flag's time bucket. Place it inside the catch block of code gated by a feature flag.
+
+```tsx
+import { useFlag, useFlagmint } from 'flagmint-react-sdk/client';
+
+export function Checkout() {
+  const showNewFlow = useFlag<boolean>('new_checkout_flow', false);
+  const { trackError } = useFlagmint();
+
+  const handleSubmit = async () => {
+    try {
+      await processPayment();
+    } catch (err) {
+      trackError('new_checkout_flow', err, { step: 'payment' });
+      throw err;
+    }
+  };
+
+  return showNewFlow ? <NewCheckout onSubmit={handleSubmit} /> : <LegacyCheckout />;
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this error to |
+| `error` | `unknown` | Optional. `name` and `message` are extracted (max 500 chars each). Stack traces are never sent. |
+| `extra` | `Record<string, unknown>` | Optional. Additional context — order IDs, request IDs, etc. |
+
+### `track`
+
+Records a custom analytics event attributed to a flag. Use this for conversion tracking, user actions, and A/B test outcomes. Custom events appear in the flag's analytics panel but do **not** count toward the guardrail error rate.
+
+```tsx
+import { useFlag, useFlagmint } from 'flagmint-react-sdk/client';
+
+export function CheckoutSuccess() {
+  const { track } = useFlagmint();
+
+  useEffect(() => {
+    track('new_checkout_flow', 'checkout_completed', { orderId: 'ord_abc123' });
+  }, []);
+
+  return <SuccessScreen />;
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this event to |
+| `eventName` | `string` | A name for this event type, e.g. `'checkout_completed'` |
+| `extra` | `Record<string, unknown>` | Optional. Any additional data to attach |
+
+### Behaviour
+
+Both methods are fire-and-forget — they never throw and never cause a re-render. Events are batched and flushed every 2 seconds. If analytics is disabled for the flag or the SDK is in preview mode, calls are silently dropped.
+
+<Note>
+  Only `trackError` counts toward a flag's error rate and can trigger a Guardrail. `track` is for analytics only. See [Guardrails](/concepts/guardrails) for threshold configuration and auto-pause behaviour.
+</Note>
+
+---
+
 ## Troubleshooting
 
 <AccordionGroup>
@@ -256,16 +332,16 @@ console.log(config.maxRetries); // ✓ type-safe
     The SDK can't connect to the server. Check that your API key is correct, the API URL is reachable, and CORS allows your app's origin.
   </Accordion>
   <Accordion title="Flags don't update in real-time">
-    Verify you're using `transportMode: 'websocket'`. If you're behind a corporate proxy that blocks WebSocket connections, switch to `'long-polling'`.
+    Verify you're using `transportMode: 'sse'` (or `'websocket'` if on a version prior to 1.2.1). If you're behind a corporate proxy that blocks SSE connections, switch to `'long-polling'`.
   </Accordion>
   <Accordion title="Hydration mismatch in Next.js">
     The server doesn't have flag values during SSR. Use the `initialFlags` prop to pass pre-evaluated flags, or wrap the flag-dependent UI with `useFlagmintReady` to defer rendering until the client has connected.
   </Accordion>
-  <Accordion title="WebSocket disconnects and reconnects repeatedly">
-    Check your server's heartbeat interval. The SDK sends a ping every 25 seconds. If your server's heartbeat timeout is shorter than the SDK's ping interval, the server will terminate the connection. Align both to 30 seconds.
+  <Accordion title="SSE disconnects and reconnects repeatedly">
+    Check your server's heartbeat interval. The SDK sends a heartbeat every 25 seconds. If your proxy or server closes idle connections before that, switch to `'long-polling'` or increase the server-side keep-alive timeout.
   </Accordion>
   <Accordion title="CORS error when connecting">
-    Your Flagmint API must include your app's origin in its CORS configuration. For local development, ensure `localhost:3000` (or your dev port) is allowed. The WebSocket upgrade request also needs CORS headers.
+    Your Flagmint API must include your app's origin in its CORS configuration. For local development, ensure `localhost:3000` (or your dev port) is allowed.
   </Accordion>
 </AccordionGroup>
 
