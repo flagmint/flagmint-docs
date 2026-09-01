@@ -615,6 +615,22 @@ Close the transport, clear subscribers, and leave any share group.
 client.destroy();
 ```
 
+#### `trackError(flagKey, error?, extra?)`
+
+Send an error event attributed to a flag. Feeds the [Guardrails](/concepts/guardrails) error-rate pipeline.
+
+```javascript
+client.trackError('my_flag', err, { step: 'checkout' });
+```
+
+#### `track(flagKey, eventName, extra?)`
+
+Send a custom analytics event attributed to a flag. Appears in the flag's analytics panel.
+
+```javascript
+client.track('my_flag', 'checkout_completed', { orderId: 'ord_123' });
+```
+
 ### CacheAdapter Interface
 
 ```typescript
@@ -662,6 +678,69 @@ import { rolloutUtils } from 'flagmint-js-sdk/core/evaluation';
 const percentage = rolloutUtils.hashToPercentage('user123');
 const variant = rolloutUtils.pickVariant('user123', variantConfig);
 ```
+
+## Analytics & Guardrails
+
+<Note>
+  `trackError` and `track` are available from **flagmint-js-sdk 2.0.0**. Support for the Go SDK and others is coming soon.
+</Note>
+
+The SDK exposes two methods for sending application events back to Flagmint. Both require **Analytics Tracking** to be enabled for the flag in the dashboard, and both are no-ops when `enableFlagmint: false` or `previewMode: true`.
+
+### `trackError(flagKey, error?, extra?)`
+
+Records an error event attributed to `flagKey`. This is what feeds [Guardrails](/concepts/guardrails) — every call increments the error count for that flag in the current time bucket. Use it inside catch blocks that handle code paths gated by a feature flag.
+
+```javascript
+const newCheckout = client.getFlag('new_checkout_flow', false);
+
+try {
+  await processPayment();
+} catch (err) {
+  client.trackError('new_checkout_flow', err, { step: 'payment' });
+  throw err;
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this error to |
+| `error` | `unknown` | Optional. `name` and `message` are extracted (max 500 chars each). Stack traces are never sent. |
+| `extra` | `Record<string, unknown>` | Optional. Additional context — order IDs, request IDs, etc. |
+
+The variation value and user key are captured automatically from the SDK's current state at call time.
+
+### `track(flagKey, eventName, extra?)`
+
+Records a custom event attributed to `flagKey`. Use this for conversion tracking, user actions, and A/B test outcomes. Custom events appear in the flag's analytics panel but do **not** count toward the guardrail error rate.
+
+```javascript
+// Successful checkout — record it as a custom event
+client.track('new_checkout_flow', 'checkout_completed', {
+  orderId: 'ord_abc123',
+  amount: 49.99,
+});
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this event to |
+| `eventName` | `string` | A name for this event type, e.g. `'checkout_completed'` |
+| `extra` | `Record<string, unknown>` | Optional. Any additional data to attach |
+
+### Event batching
+
+Both methods are fire-and-forget:
+
+- Events are queued in memory and flushed every **2 seconds** (or when 20 events accumulate, whichever comes first).
+- They never throw — errors in the event pipeline are silently swallowed to prevent application impact.
+- Events are sent to `POST /evaluator/events` using the same API key as the SDK connection.
+
+<Note>
+  Only `trackError` calls count toward a flag's error rate and can trigger a Guardrail. `track` events are for analytics only. See [Guardrails](/concepts/guardrails) for threshold configuration and auto-pause behaviour.
+</Note>
+
+---
 
 ## Troubleshooting
 

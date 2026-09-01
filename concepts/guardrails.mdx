@@ -1,0 +1,349 @@
+---
+title: "Guardrails"
+description: "Automatically pause a flag when SDK error rates cross a threshold — catch regressions before they reach your full user base"
+---
+
+## Overview
+
+Guardrails let you set an automatic safety net on any feature flag. When the error rate attributed to a flag exceeds a threshold, Flagmint notifies your team and — optionally — pauses the rollout on its own, with no human in the loop required.
+
+<CardGroup cols={2}>
+  <Card title="Automatic Protection" icon="shield-check">
+    Set an error-rate threshold and let Flagmint pause the flag the moment something goes wrong.
+  </Card>
+  <Card title="Works With Any Rollout" icon="layer-group">
+    Guardrails sit on top of gradual rollouts, percentage splits, targeted rollouts, or a plain flag toggle.
+  </Card>
+  <Card title="Powered by SDK Events" icon="bolt">
+    `trackError()` in your code feeds the error-rate pipeline. No third-party APM required.
+  </Card>
+  <Card title="QA Fire Drill" icon="fire">
+    Trip the checker synthetically to verify your alerts and auto-pause path without touching production traffic.
+  </Card>
+</CardGroup>
+
+---
+
+## Where to Find It
+
+Guardrails live inside the **Settings** panel of any feature flag, under the **App error guardrail** section.
+
+**Dashboard path:** Experiments → select a flag → **Settings** → scroll to **App error guardrail**
+
+<img src="/images/guardrails-settings.png" alt="App error guardrail settings panel showing threshold, min evaluations, lookback window, email/in-app notifications, and auto-pause toggle" />
+
+Each flag has a separate Guardrails configuration per environment, so you can have stricter thresholds in production than in staging.
+
+<Note>
+  Guardrails require **Analytics Tracking** to be enabled for that flag — the toggle sits directly above the App error guardrail section in the same Settings panel. Without it, the SDK has nowhere to send events and the guardrail config is inactive.
+</Note>
+
+---
+
+## Why You Need It
+
+Every gradual rollout carries risk. Flagmint already lets you set rollout percentages and targeting rules to limit blast radius — but those tools are proactive. Guardrails are your reactive safety net.
+
+Without guardrails:
+- An error introduced by a feature flag can run at 10% rollout for minutes or hours before someone notices.
+- You depend on external monitoring to connect an error spike to a flag.
+- Someone must manually log in and pause the rollout.
+
+With guardrails:
+- Errors are attributed to the exact flag and variation that was served to that user.
+- The moment the rate crosses your threshold, Flagmint pauses the rollout and pushes the change to all connected SDKs in real time.
+- Your team gets an in-app notification and an email before they've even opened their monitoring dashboard.
+
+---
+
+## How It Works
+
+### The Error Pipeline
+
+<Steps>
+  <Step title="SDK sends error events">
+    Your application calls `client.trackError('flag_key', error)` inside a try/catch. The SDK batches and sends these events to Flagmint every 2 seconds, attributed to the variation the user received.
+  </Step>
+  <Step title="Events accumulate in metrics">
+    Flagmint counts `trackError` calls and total evaluations per flag, per environment, per hour.
+  </Step>
+  <Step title="Guardrail checker runs every 5 minutes">
+    A background worker sums error counts and total evaluations across your configured time window (`1h`, `6h`, or `24h`).
+  </Step>
+  <Step title="Trip condition evaluated">
+    The guardrail trips when **all three** conditions are true simultaneously:
+    - At least one error event was recorded
+    - Total evaluations ≥ `min_evaluations`
+    - `(error count / total evaluations) × 100 ≥ error_rate_threshold_pct`
+  </Step>
+  <Step title="Action taken">
+    Flagmint notifies your team (in-app and/or email) and, if **Auto-pause** is on, sets the rollout strategy to `off` and broadcasts the change to all connected SDK clients instantly.
+  </Step>
+</Steps>
+
+### What "auto-pause" actually does
+
+When a guardrail trips with auto-pause enabled:
+
+1. **All active rollouts** for that flag in that environment are set to `off` — this covers percentage rollouts, gradual rollouts, targeted rollouts, and weighted variant rollouts equally.
+2. If the flag has **no active rollout** at all, the flag's `is_active` flag is set to `false` (equivalent to flipping the kill switch off).
+3. The state change is published via Redis pub/sub — SDKs receive it the same way they receive any dashboard change, within seconds.
+
+Users already being served the flag's fallback/control variation are unaffected. Users who were in the rollout cohort immediately drop back to the control variation.
+
+---
+
+## Configuration
+
+| Setting | Default | What it does |
+|---------|---------|-------------|
+| **Enabled** | Off | Must be turned on (requires Analytics Tracking to be active) |
+| **Error rate threshold** | 5% | Trip when `(errors / evaluations) × 100` reaches this value |
+| **Minimum evaluations** | 100 | Ignore trips until this much traffic has been seen — prevents false positives on low traffic |
+| **Time window** | 1 hour | How far back to look when calculating the rate: `1h`, `6h`, or `24h` |
+| **Notify in-app** | On | Send an in-app notification to all editors and admins in the organisation |
+| **Notify by email** | On | Send an email to all editors and admins |
+| **Auto-pause rollout** | Off | Automatically pause the rollout when the guardrail trips |
+
+<Tip>
+  Start with a loose threshold (10–15%) and tighten it once you have a baseline. Too sensitive a threshold on a flag with bursty traffic will produce false positives.
+</Tip>
+
+---
+
+## Monitoring the Error Rate
+
+You can track the live app error rate (and all related metrics) without waiting for a guardrail to trip. Open the flag and navigate to the **Metrics** tab.
+
+**Dashboard path:** Experiments → select a flag → **Metrics**
+
+<img src="/images/guardrails-metrics.png" alt="Flag Metrics panel showing evaluations, unique users, success rate, eval error rate, app error rate, conversion rate, and custom events cards" />
+
+The metrics relevant to guardrails are:
+
+| Metric | What it shows |
+|--------|--------------|
+| **App error rate** | `(trackError() calls / evaluations) × 100` for this flag. This is exactly the value the guardrail checker compares against your threshold. |
+| **Custom events** | Total `track()` calls attributed to this flag. Conversion tracking; does not affect guardrails. |
+| **Eval error rate** | Flagmint engine errors (served a fallback). Separate from app errors — this reflects SDK/infra issues, not your application code. |
+| **Evaluations** | Total times the flag was requested. Used as the denominator for the app error rate and as the gate for `min_evaluations`. |
+
+Use the **Last 24 Hours / Last 7 Days / Last 30 Days** selector to spot trends before adjusting your guardrail threshold.
+
+<Tip>
+  If **App error rate** is consistently non-zero but your guardrail has never tripped, check that `min_evaluations` isn't set too high relative to your traffic volume, or that your `window_hours` isn't too short to accumulate enough data.
+</Tip>
+
+---
+
+## When to Use Guardrails
+
+Guardrails are most valuable when:
+
+**You're doing a gradual rollout of a risky change** — payment flows, data migrations, new API integrations, anything where errors have real user impact. Set auto-pause at a 5% error rate so the rollout halts before the bad variation reaches your full audience.
+
+**You want accountability without a war room** — flag the try/catch blocks around your new feature and let the guardrail fire an alert. Your on-call engineer gets notified without anyone manually watching dashboards.
+
+**You need an audit trail** — every time a guardrail trips, Flagmint records the event with a timestamp, the error rate at the time, the threshold, and what action was taken. Useful for incident post-mortems.
+
+**You're releasing to external users or enterprise customers** — targeted rollouts combined with guardrails mean a bug surfaces in your beta cohort and is caught before it reaches paying customers.
+
+---
+
+## Combining Guardrails with Other Features
+
+Guardrails are not a rollout type — they are an automatic observer that can act on *any* rollout configuration. The table below shows how they interact with Flagmint's other tools.
+
+| Flagmint feature | How guardrails interact |
+|---|---|
+| **Gradual / percentage rollout** | Guardrail trips → sets rollout strategy to `off`. Equivalent to manually setting rollout to 0%. Re-enabling requires going back to the dashboard. |
+| **Targeted rollout** | Same as gradual — the targeted rollout's strategy is set to `off`. The audience condition is preserved and can be re-activated. |
+| **Kill switch** | If the flag has no active rollout, auto-pause sets `is_active = false` — the same as flipping the kill switch. Guardrails give the kill switch automated, metric-driven trigger logic. |
+| **Targeting rules** | Targeting rules are not touched by auto-pause. If a targeting rule was returning a variation before the guardrail tripped, it continues to do so unless you manually adjust it. |
+| **Multiple environments** | Guardrails are per-environment. Tripping production guardrails does not affect staging configuration. |
+| **Webhooks** | A guardrail event triggers your webhooks the same way any flag change does, so you can fan out to Slack, PagerDuty, or any other tool. |
+
+### Example: Gradual Rollout + Guardrail
+
+```yaml
+Flag: new_checkout_flow
+Environment: production
+
+Rollout: 15% → new_checkout_flow variation
+Guardrail:
+  enabled: true
+  threshold: 5%
+  min_evaluations: 100
+  window: 1h
+  auto_pause: true
+```
+
+At 15% rollout, 3,000 users per hour see the new checkout. If 160+ of those trigger `trackError('new_checkout_flow', err)`, the guardrail trips, sets rollout to `off`, and emails your team. The other 85% of users were never exposed.
+
+### Example: Kill Switch + Guardrail (no rollout)
+
+```yaml
+Flag: legacy_api_fallback
+Environment: production
+Template: kill switch (is_active: true, no rollout configured)
+
+Guardrail:
+  enabled: true
+  threshold: 3%
+  min_evaluations: 50
+  window: 1h
+  auto_pause: true
+```
+
+No rollout exists, so when the guardrail trips it sets `is_active = false` — the kill switch fires automatically based on live error data.
+
+---
+
+## SDK Compatibility
+
+`trackError` and `track` are available in:
+
+| SDK | Package | Min version |
+|-----|---------|-------------|
+| JavaScript / Node.js | `flagmint-js-sdk` | **2.0.0** |
+| React | `flagmint-react-sdk` | **1.2.1** |
+| Vue.js | `flagmint-vuejs-feature-flags` | **2.0.0** |
+| Go | coming soon | — |
+
+<Note>
+  Support for Go and other SDKs is on the roadmap. Until then, server-side guardrails can still be driven by error events from a browser or Node.js SDK running in the same product.
+</Note>
+
+---
+
+## The Role of `track` and `trackError`
+
+Guardrails are only as good as the events that feed them. Both `trackError` and `track` are SDK methods for sending application events back to Flagmint, but they serve different purposes.
+
+### `trackError(flagKey, error?, extra?)`
+
+Sends an **error event** attributed to `flagKey`. This is the signal that feeds the guardrail pipeline. Every call increments the error count for that flag in the current time bucket.
+
+```javascript
+const client = new FlagClient({ apiKey: 'ff_...', enableFlagmint: true });
+await client.ready();
+
+const newCheckout = client.getFlag('new_checkout_flow', false);
+try {
+  await processPayment();
+} catch (err) {
+  // This call feeds the guardrail for 'new_checkout_flow'
+  client.trackError('new_checkout_flow', err, { step: 'payment' });
+  throw err;
+}
+```
+
+What gets sent:
+- `flagKey` — identifies which flag this error is attributed to
+- `variationValue` — the variation the SDK was serving at the time (captured automatically)
+- `userKey` — from the current SDK context
+- `extra.name` and `extra.message` — from the error object, truncated to 500 characters. The stack trace is **never** sent.
+
+<Warning>
+  `trackError` only counts toward guardrails when **Analytics Tracking** is enabled for that flag. If analytics is off, the event is silently dropped. Check the flag's settings panel if guardrails are not responding as expected.
+</Warning>
+
+### `track(flagKey, eventName, extra?)`
+
+Sends a **custom event** attributed to `flagKey`. This is for general analytics (conversion tracking, user actions, A/B test outcomes). It does **not** count toward the guardrail error rate.
+
+```javascript
+// User completed a checkout — record it as a custom event
+client.track('new_checkout_flow', 'checkout_completed', {
+  orderId: 'ord_123',
+  amount: 49.99,
+});
+```
+
+Custom events appear in the flag's analytics panel and can be used to measure the positive impact of a feature alongside error rates.
+
+### Event behaviour
+
+| Behaviour | Detail |
+|-----------|--------|
+| **Batching** | Events are queued and flushed every 2 seconds or when 20 events accumulate |
+| **Never throws** | Both methods are fire-and-forget — errors in the event pipeline never propagate to your application |
+| **No-op conditions** | Events are silently dropped when `enableFlagmint: false`, `previewMode: true`, or analytics is disabled for the flag |
+| **Attribution** | The variation value is captured at call time from the SDK's local flag snapshot |
+
+---
+
+## QA Fire Drill
+
+Before you rely on a guardrail in production, verify it end-to-end with a fire drill. The fire drill triggers the guardrail checker immediately using a synthetic error burst — it does not affect your real metrics or change the current rollout state.
+
+**How to run one:**
+
+1. Open the flag in the dashboard → **Guardrails** tab
+2. Click **Run Fire Drill**
+3. Flagmint injects a synthetic burst that trips the threshold, then immediately clears it
+4. Check that in-app and email notifications arrive as expected
+5. If auto-pause is on, verify the rollout is paused and re-enable it after the drill
+
+<Note>
+  Fire drills are rate-limited to **5 per organisation per hour**. The event is recorded in the guardrail history as `fire_drill` so it is clearly marked in your audit trail.
+</Note>
+
+---
+
+## Guardrail Event History
+
+Every time a guardrail trips (or a fire drill runs), Flagmint records a guardrail event with:
+
+| Field | Description |
+|-------|-------------|
+| `triggered_at` | Timestamp of the event |
+| `error_rate_pct` | The actual error rate at trigger time |
+| `error_count` | Raw error count in the window |
+| `total_evaluations` | Total evaluations in the window |
+| `action_taken` | `notified`, `paused_rollout`, `paused_flag`, or `fire_drill` |
+| `is_fire_drill` | Whether this was a synthetic trigger |
+
+You can view this history on the Guardrails tab. It also appears in **Audit Logs** for compliance and post-incident review.
+
+---
+
+## API
+
+Guardrails are also manageable via the REST API:
+
+```bash
+# Get guardrail config
+GET /projects/:projectId/flags/:flagId/environments/:envId/guardrails
+
+# Update guardrail config
+PUT /projects/:projectId/flags/:flagId/environments/:envId/guardrails
+
+# Run a fire drill
+POST /projects/:projectId/flags/:flagId/environments/:envId/guardrails/fire-drill
+```
+
+---
+
+## Related Topics
+
+<CardGroup cols={3}>
+  <Card title="Rollouts" icon="gauge" href="/concepts/rollouts">
+    Gradual and targeted rollouts that guardrails protect
+  </Card>
+  <Card title="Node.js SDK" icon="server" href="/sdks/nodejs">
+    trackError and track in the JS SDK
+  </Card>
+  <Card title="React SDK" icon="react" href="/sdks/react">
+    trackError and track in the React SDK
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/platform/webhooks">
+    Fan guardrail events out to Slack, PagerDuty, and more
+  </Card>
+  <Card title="Evaluation Logic" icon="sitemap" href="/getting-started/evaluation-logic">
+    Full flag evaluation pipeline
+  </Card>
+  <Card title="Best Practices" icon="star" href="/resources/best-practices">
+    Production-ready flag management strategies
+  </Card>
+</CardGroup>

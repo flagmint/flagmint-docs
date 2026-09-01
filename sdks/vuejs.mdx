@@ -599,6 +599,98 @@ const variant = client.getFlag('experiment-design', 'control');
 - [ ] Variant analytics
 - [ ] Remote override via devtools
 
+## Analytics & Guardrails
+
+<Note>
+  `trackError` and `track` are available from **flagmint-vuejs-feature-flags 2.0.0**. Support for the Go SDK and others is coming soon.
+</Note>
+
+The plugin exposes `trackError` and `track` for sending application events back to Flagmint. Both require **Analytics Tracking** to be enabled for the flag in the dashboard, and both are no-ops in `previewMode`.
+
+### `trackError`
+
+Records an error event attributed to a flag. This is the signal that feeds [Guardrails](/concepts/guardrails). Place it inside the catch block of code gated by a feature flag.
+
+**Vue 3 (Composition API)**
+
+```vue
+<script setup>
+import { useFlagClient, useFlagmintReady } from 'flagmint-vuejs-feature-flags';
+
+await useFlagmintReady();
+const client = useFlagClient();
+
+const handleCheckout = async () => {
+  try {
+    await processPayment();
+  } catch (err) {
+    client.trackError('new_checkout_flow', err, { step: 'payment' });
+    throw err;
+  }
+};
+</script>
+```
+
+**Vue 2 (Options API)**
+
+```javascript
+export default {
+  async mounted() {
+    await this.$flagmintReady;
+  },
+  methods: {
+    async handleCheckout() {
+      try {
+        await processPayment();
+      } catch (err) {
+        this.$flagmint.trackError('new_checkout_flow', err, { step: 'payment' });
+        throw err;
+      }
+    }
+  }
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this error to |
+| `error` | `unknown` | Optional. `name` and `message` are extracted (max 500 chars each). Stack traces are never sent. |
+| `extra` | `Record<string, unknown>` | Optional. Additional context — order IDs, step names, etc. |
+
+### `track`
+
+Records a custom analytics event attributed to a flag. Use this for conversion tracking and A/B test outcomes. Custom events appear in the flag's analytics panel but do **not** count toward the guardrail error rate.
+
+**Vue 3**
+
+```vue
+<script setup>
+import { useFlagClient, useFlagmintReady } from 'flagmint-vuejs-feature-flags';
+
+await useFlagmintReady();
+const client = useFlagClient();
+
+// After a successful checkout
+client.track('new_checkout_flow', 'checkout_completed', { orderId: 'ord_abc123' });
+</script>
+```
+
+**Vue 2**
+
+```javascript
+this.$flagmint.track('new_checkout_flow', 'checkout_completed', { orderId: 'ord_abc123' });
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this event to |
+| `eventName` | `string` | A name for this event type, e.g. `'checkout_completed'` |
+| `extra` | `Record<string, unknown>` | Optional. Any additional data to attach |
+
+Both methods are fire-and-forget — they never throw and events are batched and flushed every 2 seconds.
+
+---
+
 ## Troubleshooting
 
 <AccordionGroup>

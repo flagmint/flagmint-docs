@@ -249,6 +249,78 @@ const config = useFlag<FeatureConfig>('api-config', {
 console.log(config.maxRetries); // ✓ type-safe
 ```
 
+## Analytics & Guardrails
+
+<Note>
+  `trackError` and `track` are available from **flagmint-react-sdk 1.2.1**. Support for the Go SDK and others is coming soon.
+</Note>
+
+The `useFlagmint()` hook exposes `trackError` and `track` for sending application events back to Flagmint. Both require **Analytics Tracking** to be enabled for the flag in the dashboard.
+
+### `trackError`
+
+Records an error event attributed to a flag. This is the signal that feeds [Guardrails](/concepts/guardrails) — every call increments the error count for that flag's time bucket. Place it inside the catch block of code gated by a feature flag.
+
+```tsx
+import { useFlag, useFlagmint } from 'flagmint-react-sdk/client';
+
+export function Checkout() {
+  const showNewFlow = useFlag<boolean>('new_checkout_flow', false);
+  const { trackError } = useFlagmint();
+
+  const handleSubmit = async () => {
+    try {
+      await processPayment();
+    } catch (err) {
+      trackError('new_checkout_flow', err, { step: 'payment' });
+      throw err;
+    }
+  };
+
+  return showNewFlow ? <NewCheckout onSubmit={handleSubmit} /> : <LegacyCheckout />;
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this error to |
+| `error` | `unknown` | Optional. `name` and `message` are extracted (max 500 chars each). Stack traces are never sent. |
+| `extra` | `Record<string, unknown>` | Optional. Additional context — order IDs, request IDs, etc. |
+
+### `track`
+
+Records a custom analytics event attributed to a flag. Use this for conversion tracking, user actions, and A/B test outcomes. Custom events appear in the flag's analytics panel but do **not** count toward the guardrail error rate.
+
+```tsx
+import { useFlag, useFlagmint } from 'flagmint-react-sdk/client';
+
+export function CheckoutSuccess() {
+  const { track } = useFlagmint();
+
+  useEffect(() => {
+    track('new_checkout_flow', 'checkout_completed', { orderId: 'ord_abc123' });
+  }, []);
+
+  return <SuccessScreen />;
+}
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `flagKey` | `string` | The flag key to attribute this event to |
+| `eventName` | `string` | A name for this event type, e.g. `'checkout_completed'` |
+| `extra` | `Record<string, unknown>` | Optional. Any additional data to attach |
+
+### Behaviour
+
+Both methods are fire-and-forget — they never throw and never cause a re-render. Events are batched and flushed every 2 seconds. If analytics is disabled for the flag or the SDK is in preview mode, calls are silently dropped.
+
+<Note>
+  Only `trackError` counts toward a flag's error rate and can trigger a Guardrail. `track` is for analytics only. See [Guardrails](/concepts/guardrails) for threshold configuration and auto-pause behaviour.
+</Note>
+
+---
+
 ## Troubleshooting
 
 <AccordionGroup>
