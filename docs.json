@@ -15,8 +15,14 @@
   },
   "navbar": {
     "links": [
-      { "label": "Dashboard", "href": "https://flagmint.com/dashboard" },
-      { "label": "Support", "href": "mailto:support@flagmint.com" }
+      {
+        "label": "Dashboard",
+        "href": "https://flagmint.com/dashboard"
+      },
+      {
+        "label": "Support",
+        "href": "mailto:support@flagmint.com"
+      }
     ],
     "primary": {
       "type": "button",
@@ -56,6 +62,7 @@
               "concepts/targeting-rules",
               "concepts/segments",
               "concepts/rollouts",
+              "concepts/scheduled-releases",
               "concepts/measuring-ab-outcomes",
               "concepts/guardrails",
               "concepts/attributes"
@@ -84,11 +91,11 @@
           {
             "group": "Resources",
             "pages": [
-            "resources/migrate-from-launchdarkly",
-            "resources/best-practices",
-            "resources/qa-scenarios",
-            "resources/troubleshooting",
-            "resources/changelog"
+              "resources/migrate-from-launchdarkly",
+              "resources/best-practices",
+              "resources/qa-scenarios",
+              "resources/troubleshooting",
+              "resources/changelog"
             ]
           }
         ]
@@ -98,15 +105,24 @@
         "groups": [
           {
             "group": "Client-Side SDKs",
-            "pages": ["sdks/react", "sdks/vuejs", "sdks/privacy-and-caching"]
+            "pages": [
+              "sdks/react",
+              "sdks/vuejs",
+              "sdks/privacy-and-caching"
+            ]
           },
           {
             "group": "Server-Side SDKs",
-            "pages": ["sdks/nodejs", "sdks/go"]
+            "pages": [
+              "sdks/nodejs",
+              "sdks/go"
+            ]
           },
           {
             "group": "Direct Integration",
-            "pages": ["sdks/rest-api"]
+            "pages": [
+              "sdks/rest-api"
+            ]
           }
         ]
       },
@@ -237,6 +253,18 @@
             ]
           },
           {
+            "group": "Scheduled releases",
+            "pages": [
+              "api-reference/scheduled-releases/list-pending-schedules-for-a-project",
+              "api-reference/scheduled-releases/list-schedules-for-a-flag",
+              "api-reference/scheduled-releases/create-a-scheduled-release",
+              "api-reference/scheduled-releases/pause-a-scheduled-release",
+              "api-reference/scheduled-releases/resume-a-scheduled-release",
+              "api-reference/scheduled-releases/reschedule-a-pending-release",
+              "api-reference/scheduled-releases/cancel-a-scheduled-release"
+            ]
+          },
+          {
             "group": "Segments",
             "pages": [
               "api-reference/segments/list-segments",
@@ -249,7 +277,9 @@
           },
           {
             "group": "Environments",
-            "pages": ["api-reference/environments"]
+            "pages": [
+              "api-reference/environments"
+            ]
           },
           {
             "group": "Attributes",
@@ -328,10 +358,21 @@
       }
     ]
   },
-  "seo": { "indexHiddenPages": false },
-  "feedback": { "thumbsRating": true, "suggestEdit": true },
+  "seo": {
+    "indexHiddenPages": false
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true
+  },
   "api": {
+    "playground": {
+      "display": "interactive",
+      "proxy": true
+    },
     "examples": {
+      "languages": ["curl", "javascript", "python", "go"],
+      "defaults": "required",
       "prefill": true
     }
   }

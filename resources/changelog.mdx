@@ -5,6 +5,69 @@ description: "Product and API changes in Flagmint."
 
 Release notes for the Flagmint API and dashboard. SDK package versions are listed in each SDK guide.
 
+<Update label="v1.7.0" description="Released October 4, 2026">
+
+## Highlights
+
+**Schedule a release** so a flag turns on or off when you need it — launches, cutovers, and after-hours changes, without watching the clock.
+
+## Scheduled releases
+
+- On any flag, open **Schedule** (beside Rollout)
+- Choose whether to turn the flag **on** or **off**, then pick when — including the timezone your team works in
+- Change your mind anytime: pause, resume, edit, or cancel before it runs
+- Flag cards show what’s coming next (for example, *Scheduled · On 7 Oct, 09:00*)
+- When the time comes, the dashboard updates on its own — and the change is dispatched to your **edge nodes** (connected SDKs) so apps pick it up without a redeploy
+
+### Pause and resume
+
+You can hold a schedule without throwing away the time you already picked.
+
+- **Pause** — The flip does **not** run at the scheduled time. The flag stays as it is today. The card badge switches to *Paused · …* with the same date and time. Cancel or edit are still available while it’s paused.
+- **Resume (time still in the future)** — The schedule is armed again for that same date and time. The badge goes back to *Scheduled · …*, and the on/off change runs when the clock hits that moment.
+- **Resume (time already passed)** — Flagmint applies the on/off change **right away**. The pending schedule clears (no leftover “Scheduled” badge for a time that’s already gone), the dashboard updates, and connected SDKs get the change like a normal apply.
+
+Editing the schedule (new time or on/off) works whether it’s scheduled or paused. A paused schedule stays paused until you resume; picking a new future time does not auto-arm it.
+
+Requires **API 1.7.0+** and **dashboard 1.5.0+**. Full guide: [Scheduled releases](/concepts/scheduled-releases). Recurring schedules and email/Slack reminders are planned next.
+
+</Update>
+
+<Update label="v1.5.0" description="Released September 15, 2026">
+
+## Highlights
+
+JavaScript apps can optionally **download signed flag rules** and evaluate them **on the device** (config sync), instead of asking the server for every flag answer on the stream. Legacy server evaluation stays the default.
+
+## Config sync (local evaluation)
+
+Opt-in for the JavaScript SDK. The API still supports the classic SSE “evaluated flags” path.
+
+- Handshake may exchange ECDH keys so each connection gets its own signing secret (the secret is never sent on the wire)
+- Stream events in config mode: `lease`, `fullConfig`, and `delta` / `deltas` (catch-up when you reconnect)
+- `GET /evaluator/v2/flags/config` — fetch a signed snapshot or catch-up without holding a stream open
+- Expired lease → fail closed (defaults only; no offline targeting abuse)
+- Soft warnings when a rules snapshot is very large (does not hard-fail by default)
+
+**JavaScript SDK (`flagmint-js-sdk` v2.1)**
+
+- Set `configSync: true` to use local evaluation
+- Optional local cache of rules across page reloads
+- Optional `debugLog` lines for stream connect / disconnect (for support)
+
+See the [Node.js / JavaScript SDK](/sdks/nodejs).
+
+## Billing meters (recording only)
+
+The API now records separate usage meters such as **connections**, **observed contexts**, and **track** events. Plan **limits on those meters are not enforced yet** — included usage and overage still follow your existing evaluation / API-call plan. Meter-based plan limits will follow in a later release.
+
+## Other notes
+
+- Empty or `null` JSON body on ASL handshake is accepted (common browser behavior)
+- Internal QA helpers for lease clock travel and replaying compiled rules (staging / non-production)
+
+</Update>
+
 <Update label="v1.4.0" description="Released August 26, 2026">
 
 ## What's new in the dashboard

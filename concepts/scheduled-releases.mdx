@@ -1,0 +1,180 @@
+---
+title: "Scheduled releases"
+description: "Turn a flag on or off at a chosen time — launches, cutovers, and after-hours changes without watching the clock"
+---
+
+<Note>
+  **Added in API v1.7.0 / dashboard v1.5.0** (October 2026). See the [changelog](/resources/changelog#v170).
+</Note>
+
+## Overview
+
+A **scheduled release** books a future flip of a flag’s active state: turn it **on** or **off** at a date and time you choose. Flagmint stores the run time in **UTC**, shows you the wall clock in the timezone you pick, and applies the change when that moment arrives — then pushes it to connected SDKs (edge nodes) so apps pick it up without a redeploy.
+
+Use it when the change should happen at a known clock time (launch window, maintenance cutover, “go live Monday 09:00”) rather than when someone happens to be online to toggle the flag.
+
+<CardGroup cols={2}>
+  <Card title="One-shot on/off" icon="calendar-clock">
+    Schedule a single turn-on or turn-off. Not a percentage ramp — that stays on [Rollouts](/concepts/rollouts).
+  </Card>
+  <Card title="Your timezone, UTC under the hood" icon="globe">
+    Pick the wall clock in your zone; Flagmint converts and runs in UTC.
+  </Card>
+  <Card title="Pause, resume, edit, cancel" icon="pause">
+    Hold or change the booking before it fires — without losing the plan.
+  </Card>
+  <Card title="Live dashboard + SDKs" icon="bolt">
+    When it applies, flag cards update and connected clients get the new state.
+  </Card>
+</CardGroup>
+
+---
+
+## Where to find it
+
+On any flag, open the **Schedule** area (beside **Rollout** in the flag navigation).
+
+**Dashboard path:** Project → Flags → select a flag → **Schedule**
+
+Flag cards and the flags table also show a short badge when a pending schedule exists (for example *Scheduled · On 7 Oct, 09:00* or *Paused · Off 7 Oct, 09:00*).
+
+---
+
+## What you configure
+
+| Field | Meaning |
+|-------|---------|
+| **Action** | **Turn flag on** or **Turn flag off** — this sets `is_active` when the schedule applies. |
+| **When** | Date and time in the timezone you select (wall clock). |
+| **Timezone** | IANA zone for that wall clock (defaults to your account/device timezone; you can search and pick another). |
+
+Flagmint always persists **`run_at` in UTC**. The timezone is for display and for interpreting the time you typed — not a second clock that the worker “runs in.”
+
+<Tip>
+  Below the picker you’ll see a line like **Runs at UTC 2026-10-07 08:00Z**. That is the instant that will fire, no matter which timezone you used to choose it.
+</Tip>
+
+---
+
+## How it works
+
+<Steps>
+  <Step title="You schedule a change">
+    Choose on or off, a future time, and a timezone. Flagmint creates a pending schedule and queues a delayed job for that UTC instant.
+  </Step>
+  <Step title="Until run time">
+    The flag stays as it is today. Cards show the upcoming badge. You can pause, resume, edit (new time or action), or cancel.
+  </Step>
+  <Step title="At run time">
+    Flagmint applies the action: sets the flag active or inactive, refreshes caches, and notifies the dashboard. Connected SDKs receive the update like any other live flag change.
+  </Step>
+  <Step title="Safety net">
+    A short sweeper also looks for due schedules (in case a delayed job was missed), so a brief worker blip does not leave a past-due booking stuck forever.
+  </Step>
+</Steps>
+
+### What “apply” changes
+
+Scheduled release flips the flag’s **active / inactive** kill-switch (`is_active`). It does **not**:
+
+- Change targeting rules, segments, or variations
+- Change rollout percentages
+- Create recurring daily/weekly runs (one pending booking per flag for v1)
+
+Inactive flags still return their off variation, same as toggling the switch by hand. See [Feature flags](/concepts/flags).
+
+---
+
+## Pause and resume
+
+You can hold a schedule without throwing away the time you already picked.
+
+| Action | What happens |
+|--------|----------------|
+| **Pause** | The flip does **not** run at the scheduled time. The flag stays as it is. The badge switches to *Paused · …* with the same date and time. Cancel and edit stay available. |
+| **Resume (time still in the future)** | The schedule is armed again for that same slot. The badge returns to *Scheduled · …*, and the change runs when the clock hits that moment. |
+| **Resume (time already passed)** | Flagmint applies the on/off change **immediately**. The pending schedule clears (no leftover “Scheduled” badge for a time that’s already gone), the dashboard updates, and SDKs get the change like a normal apply. |
+
+### Editing while paused
+
+You can change the action or pick a new future time while the schedule is paused. **Editing does not auto-resume** — a paused schedule stays paused until you explicitly resume. That way a draft reschedule cannot fire by accident.
+
+---
+
+## Nuances worth knowing
+
+- **One pending schedule per flag** — Create another only after the current one is applied, cancelled, or otherwise cleared. Pause/edit the existing booking instead of stacking a second one.
+- **Timezone is for the wall clock** — Two people in different zones scheduling “09:00” will book different UTC instants unless they pick the same IANA timezone. Prefer an agreed zone for shared launch windows (or always check the UTC line).
+- **Default timezone** — The picker starts from your account timezone when set, otherwise your browser/device zone. You can search the full IANA list if the launch is in another region.
+- **Past times on create/edit** — New schedules and reschedules must use a **future** `run_at`. The special case is **resume after the time has passed**, which applies now (see above).
+- **Dashboard updates live** — When a schedule applies, flag lists refresh without a manual reload (admin live channel). If you still see a stale badge for a few seconds, refresh once; overdue resumes should clear the badge in the same request.
+- **Copy / duplicate** — Cloning a flag does **not** copy its future schedule by default (the new flag starts with today’s state only). **Move** keeps the same flag identity, so an existing pending schedule stays with that flag. Behavior for copying schedules on purpose is planned as a follow-up.
+- **Permissions** — Scheduling needs the same mutate access as changing the flag (viewers cannot create or pause schedules).
+
+---
+
+## Requirements
+
+| Component | Minimum version |
+|-----------|-----------------|
+| Flagmint API | **1.7.0+** |
+| Flagmint dashboard | **1.5.0+** |
+
+No SDK upgrade is required for clients to see the new on/off state — they receive it through the same live evaluation / config paths they already use.
+
+---
+
+## Coming next
+
+Planned after v1 — not available yet:
+
+- **Email + Slack reminders** — warning shortly before run time, and confirmation when the change applies
+- **Org notification preferences** — where Slack/email for schedules are configured in the dashboard
+- **Recurring schedules** — repeat on a cadence (daily/weekly) instead of a single shot
+- **Optional “also copy schedule”** on flag duplicate/copy
+- **Deeper worker observability** — lag and queue depth for operators at scale
+
+Track product notes in the [changelog](/resources/changelog) as each item ships.
+
+---
+
+## API
+
+REST endpoints (auth JWT, editor for mutations):
+
+| Method | Path |
+|--------|------|
+| `GET` | `/projects/{projectId}/flag-schedules` |
+| `GET` | `/projects/{projectId}/flags/{flagId}/schedules` |
+| `POST` | `/projects/{projectId}/flags/{flagId}/schedules` |
+| `POST` | `/projects/{projectId}/flags/{flagId}/schedules/{scheduleId}/pause` |
+| `POST` | `/projects/{projectId}/flags/{flagId}/schedules/{scheduleId}/resume` |
+| `PUT` | `/projects/{projectId}/flags/{flagId}/schedules/{scheduleId}/reschedule` |
+| `POST` | `/projects/{projectId}/flags/{flagId}/schedules/{scheduleId}/cancel` |
+
+See the [Scheduled releases API reference](/api-reference/scheduled-releases/create-a-scheduled-release).
+
+---
+
+## Related topics
+
+<CardGroup cols={3}>
+  <Card title="Feature flags" icon="flag" href="/concepts/flags">
+    Active/inactive, variations, and kill switches
+  </Card>
+  <Card title="Rollouts" icon="gauge" href="/concepts/rollouts">
+    Percentage ramps (different from a timed on/off)
+  </Card>
+  <Card title="Guardrails" icon="shield-check" href="/concepts/guardrails">
+    Auto-pause when error rates spike
+  </Card>
+  <Card title="Create schedule (API)" icon="code" href="/api-reference/scheduled-releases/create-a-scheduled-release">
+    OpenAPI-backed endpoint docs
+  </Card>
+  <Card title="Changelog" icon="newspaper" href="/resources/changelog">
+    v1.7.0 release notes for scheduled releases
+  </Card>
+  <Card title="Evaluation logic" icon="sitemap" href="/getting-started/evaluation-logic">
+    How inactive flags are served to SDKs
+  </Card>
+</CardGroup>

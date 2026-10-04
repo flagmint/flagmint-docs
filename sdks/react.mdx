@@ -338,7 +338,9 @@ Both methods are fire-and-forget — they never throw and never cause a re-rende
     The server doesn't have flag values during SSR. Use the `initialFlags` prop to pass pre-evaluated flags, or wrap the flag-dependent UI with `useFlagmintReady` to defer rendering until the client has connected.
   </Accordion>
   <Accordion title="SSE disconnects and reconnects repeatedly">
-    Check your server's heartbeat interval. The SDK sends a heartbeat every 25 seconds. If your proxy or server closes idle connections before that, switch to `'long-polling'` or increase the server-side keep-alive timeout.
+    On Flagmint Cloud, a reconnect about every **15 minutes** is expected (edge HTTP request-duration limit). See [stream lifetime](/api-reference/evaluation/flags-stream#stream-lifetime-and-reconnects).
+
+    Rapid reconnects every few seconds, or drops under ~5 minutes while idle, are not expected — check proxies that buffer or idle-close SSE, or switch to `'long-polling'` behind a corporate proxy that blocks EventSource.
   </Accordion>
   <Accordion title="CORS error when connecting">
     Your Flagmint API must include your app's origin in its CORS configuration. For local development, ensure `localhost:3000` (or your dev port) is allowed.

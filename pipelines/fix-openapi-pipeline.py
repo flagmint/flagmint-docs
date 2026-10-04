@@ -24,14 +24,26 @@ class OpenAPIFixer:
             obj = self.fix_anyof_null(obj, path)
             obj = self.fix_allof_redundant(obj, path)
             obj = self.fix_empty_additional_properties(obj, path)
-            
+            obj = self.fix_oas31_keywords(obj, path)
+
             # Recursively process nested objects
-            for key, value in obj.items():
+            for key, value in list(obj.items()):
                 obj[key] = self.fix_schema(value, f"{path}.{key}")
-        
+
         elif isinstance(obj, list):
             return [self.fix_schema(item, f"{path}[{i}]") for i, item in enumerate(obj)]
-        
+
+        return obj
+
+    def fix_oas31_keywords(self, obj: Dict, path: str) -> Dict:
+        """
+        Strip OpenAPI 3.1 / JSON-Schema keywords Mintlify's 3.0 validator rejects.
+        Leaving these in causes the whole playground to fail to render (blank API pages).
+        """
+        # propertyNames is not valid in OAS 3.0; additionalProperties already describes maps.
+        if "propertyNames" in obj:
+            del obj["propertyNames"]
+            self.changes_made.append(f"Removed propertyNames (OAS 3.1) at {path}")
         return obj
     
     def fix_type_null(self, obj: Dict, path: str) -> Dict:

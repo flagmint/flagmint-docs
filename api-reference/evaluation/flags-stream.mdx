@@ -1,7 +1,7 @@
 ---
 title: Open the flag stream
 description: Opens a Server-Sent Events connection that pushes flag evaluations for a session.
-openapi: "api-reference/openapi.json GET /evaluator/v2/flags/stream"
+openapi: get /evaluator/v2/flags/stream
 authMethod: none
 ---
 
@@ -18,3 +18,29 @@ If the monthly quota is already exhausted, the stream emits `quota_exceeded` and
 <Warning>
   `sessionId` and `context` appear in the query string. Do not put secrets or PII in context.
 </Warning>
+
+## Stream lifetime and reconnects
+
+Flagmint SDKs treat a dropped stream as normal: they handshake for a fresh `sessionId` and open a new SSE connection. Cached flags keep serving during that gap.
+
+### Why streams end
+
+Long-lived **HTTP** responses (including SSE) almost always sit behind an edge, load balancer, or proxy with timeouts. That is industry practice, not a Flagmint quirk. Typical patterns:
+
+| Layer | What usually happens |
+|-------|----------------------|
+| Most load balancers / proxies (AWS ALB, nginx, CDNs, corporate NATs) | **Idle** timeout if no bytes move for ~30–100s (defaults vary; often configurable). Heartbeats reset idle clocks. |
+| **Flagmint Cloud** (Railway public edge in front of `stream.flagmint.com` / `staging-stream…`) | **Idle:** closes after **5 minutes** with no data. **Hard cap:** closes after **15 minutes** even when heartbeats keep flowing. [Railway edge limits](https://docs.railway.com/networking/public-networking/specs-and-limits). |
+| WebSockets on the same Railway edge | Exempt from that HTTP duration/idle pair and can stay open indefinitely while idle (still drop on deploys or network blips). |
+
+So: **expecting reconnects is standard.** A predictable reconnect about every **15 minutes** on Flagmint Cloud SSE is specifically the Railway request-duration cap, not a broken heartbeat. Flagmint sends SSE comment heartbeats about every **20 seconds**, which is enough to avoid the 5‑minute idle close.
+
+Self-hosted or differently fronted deployments follow whatever their proxy allows; there is no universal “15 minutes everywhere” rule.
+
+### What the SDK does
+
+1. Stream drops (edge cap, idle, deploy, network).
+2. SDK obtains a new single-use `sessionId` (handshake is single-use).
+3. Opens SSE again; config-sync clients may get `lease` + catch-up (`fullConfig` / `delta`) instead of a cold full resync when versions still match.
+
+You should **not** treat a ~15‑minute reconnect on Cloud as an outage. Investigate if reconnects cluster every few seconds, or if sessions die in under ~5 minutes while the process is idle (possible missing heartbeats or a stricter proxy in front of you).

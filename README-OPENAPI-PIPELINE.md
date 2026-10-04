@@ -47,15 +47,19 @@ The pipeline automatically:
 #### Python Fixer Only
 
 ```bash
-# Fix default file
-python3 fix-openapi-pipeline.py
+# Fix default file (from docs repo root)
+python3 pipelines/fix-openapi-pipeline.py
 
 # Fix custom file
-python3 fix-openapi-pipeline.py input.json output.json
+python3 pipelines/fix-openapi-pipeline.py input.json output.json
 
 # Fix in place
-python3 fix-openapi-pipeline.py api-reference/openapi.json
+python3 pipelines/fix-openapi-pipeline.py api-reference/openapi.json
 ```
+
+If a full Mintlify scrape fails validation on an unrelated path, scrape a filtered
+spec (e.g. only `*schedule*` paths) into a temp folder, then copy the generated
+`.mdx` files into `api-reference/<group>/` and add that group to `docs.json`.
 
 #### Manual Steps
 
