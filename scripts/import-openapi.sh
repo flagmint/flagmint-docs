@@ -19,7 +19,13 @@ echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━�
 
 # Step 1: Fix OpenAPI schema
 echo -e "${YELLOW}Step 1/3:${NC} Fixing OpenAPI schema compatibility..."
-python3 fix-openapi-pipeline.py "$OPENAPI_FILE"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOCS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FIXER="$DOCS_ROOT/pipelines/fix-openapi-pipeline.py"
+if [ ! -f "$FIXER" ]; then
+  FIXER="$DOCS_ROOT/fix-openapi-pipeline.py"
+fi
+python3 "$FIXER" "$OPENAPI_FILE"
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Failed to fix OpenAPI schema${NC}"

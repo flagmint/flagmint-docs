@@ -15,7 +15,7 @@ You can create flags from the Flagmint dashboard or via the API. The dashboard o
 
 When you click **+ New Flag**, you'll see the Quick Start templates and the option to create a standard flag.
 
-<img src="/images/flags-template-row.png" alt="Quick Start template selection showing Gradual Rollout, Kill Switch, and A/B Test options" />
+<img src="/images/flags-template-row.png" alt="Quick Start template selection showing Kill Switch, Gradual Rollout, A/B Test, and Scheduled release" />
 
 #### Quick Start Templates
 
@@ -23,9 +23,10 @@ Templates handle configuration automatically — you provide a name and descript
 
 | Template | Icon | What it does |
 |----------|------|-------------|
-| **Gradual Rollout** | Gauge | Boolean flag starting at 0% rollout. Takes you straight to the rollout slider. |
 | **Kill Switch** | Power | Boolean flag that's on by default. Designed to be flipped off instantly in an emergency. |
+| **Gradual Rollout** | Gauge | Boolean flag starting at 0% rollout. Takes you straight to the rollout slider. |
 | **A/B Test** | Flask | Multivariate flag with equal-split variants. Choose your variant type (string, number, or JSON). |
+| **Scheduled release** | Calendar | Boolean flag ready for a timed on/off. Takes you to **Schedule** to pick the go-live time. |
 
 Selecting a template opens a streamlined dialog — just enter a name and optional description. The key is auto-generated from the name.
 
@@ -35,7 +36,13 @@ For **A/B Tests**, you also choose a variant type before creation:
 
 <img src="/images/flags-create-ab-test.png" alt="A/B Test creation dialog with variant type selector showing String, Number, and JSON options" />
 
-After creation, templates route you to the most relevant next step: gradual rollouts go to the rollout configuration page, kill switches go to the variations page.
+After creation, templates route you to the most relevant next step:
+
+| Template | Lands on |
+|----------|----------|
+| Gradual Rollout | Rollout configuration |
+| Scheduled release | Schedule |
+| Kill Switch / A/B Test | Variations |
 
 #### Standard Flag Creation
 
@@ -57,7 +64,9 @@ curl -X POST https://api.flagmint.com/projects/{projectId}/flags \
   }'
 ```
 
-When using a template, only `name` is required. When creating a standard flag (no template), `name`, `key`, and `type` are required.
+Valid `template` values: `kill_switch`, `gradual_rollout`, `ab_test`, `scheduled_release`.
+
+When using a template, only `name` is required (`ab_test` also needs `flavor`). When creating a standard flag (no template), `name`, `key`, and `type` are required.
 
 ## Flag Anatomy
 
@@ -79,7 +88,7 @@ Flagmint supports four flag types, each with a default value when created:
 
 | Type | Default Value | Use Case |
 |------|--------------|----------|
-| `boolean` | `false` | Feature toggles, kill switches, gradual rollouts |
+| `boolean` | `false` | Feature toggles, kill switches, gradual rollouts, scheduled releases |
 | `string` | `""` | UI variants, copy tests, configuration values |
 | `number` | `0` | Thresholds, limits, numerical experiments |
 | `json` | `{}` | Complex configuration objects, structured payloads |
@@ -163,6 +172,34 @@ curl -X POST https://api.flagmint.com/projects/{projectId}/flags \
   After creation, you can adjust variant values, weights, and targeting rules. The template gives you a working starting point — customize it to match your experiment design. To measure which variant wins, see [Measuring A/B outcomes](/concepts/measuring-ab-outcomes).
 </Note>
 
+### Scheduled release
+
+A boolean flag set up for a **timed on/off** (added in API **v1.7.0** / dashboard **v1.5.0**). Use this when you know the launch window and want to book the flip instead of waiting online to toggle the kill switch.
+
+**What gets created:**
+
+- Flag with `is_active: false` and `type: boolean`
+- Two variations: **Enabled** (default, value `true`) and **Disabled** (value `false`)
+- One flag value per environment with value `false` and `off_variation_id` pointing to Disabled
+- Metadata `flag_template: ["scheduled_release"]`
+- No schedule row yet — you pick the time on the **Schedule** screen after creation
+
+**How it works:** The flag starts inactive (off variation for everyone). On the Schedule page you choose turn **on** or **off**, a wall-clock time, and a timezone. When that moment arrives, Flagmint applies the change and pushes it to connected SDKs. Full behaviour (pause, resume, overdue resume): [Scheduled releases](/concepts/scheduled-releases).
+
+```bash
+curl -X POST https://api.flagmint.com/projects/{projectId}/flags \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Launch New Checkout",
+    "template": "scheduled_release"
+  }'
+```
+
+<Tip>
+  Creating via the dashboard Quick Start card opens **Schedule** immediately so you can set the go-live time in the same flow.
+</Tip>
+
 ## Variations
 
 Each flag has one or more variations — the possible values the flag can return. Template-created flags come with pre-configured variations; standard flags get a single default variation.
@@ -215,6 +252,8 @@ A flag moves through these states:
 **Active** (`is_active: true`) → The flag is evaluated for SDK requests. Targeting rules and rollouts apply.
 
 **Inactive** (`is_active: false`) → The flag returns its off variation for all evaluations. Targeting rules are not evaluated. This is how kill switches work — toggling `is_active` immediately changes what every user sees.
+
+You can also book that on/off change for a future time with a [scheduled release](/concepts/scheduled-releases) (API v1.7.0+).
 
 **Archived** (`archived_at` set) → The flag is hidden from the default list view but still exists. Archived flags cannot be updated. You can archive a flag from the dashboard using the archive dialog.
 

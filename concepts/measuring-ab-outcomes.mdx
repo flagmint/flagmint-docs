@@ -79,6 +79,10 @@ track('checkout_button_test', 'checkout_completed');
   Enable **Analytics Tracking** on the flag (Settings) or events are skipped at ingest. Metrics and Experiment usually update after the evaluation flush worker (~5 minutes).
 </Note>
 
+<Note>
+  The first time goal events flush for a flag + environment, Flagmint shows an **in-app** toast — “Your first experiment outcome is in — open Experiment.” There is no email for this loop (unlike app-error guardrails).
+</Note>
+
 ---
 
 ## Goal conversion vs custom events

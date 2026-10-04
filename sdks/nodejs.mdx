@@ -143,6 +143,8 @@ After `ready()`:
 
 See the [streaming evaluation API](/api-reference/evaluate) for the wire protocol.
 
+On Flagmint Cloud, SSE streams are expected to reconnect about every **15 minutes** because of the edge’s HTTP request-duration limit (heartbeats prevent the shorter idle close). That is normal — see [Stream lifetime and reconnects](/api-reference/evaluation/flags-stream#stream-lifetime-and-reconnects).
+
 <Warning>
   The stream URL serializes `context` as a base64 query parameter. Do not put secrets or PII in context. Redact `sessionId` and `context` from access logs, reverse-proxy logs, and telemetry.
 </Warning>

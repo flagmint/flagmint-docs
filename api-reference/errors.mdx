@@ -1,8 +1,168 @@
 ---
 title: "Errors"
-description: "Coming soon."
+description: "HTTP status codes and error response shapes returned by the Flagmint API"
 ---
 
-<Note>
-  This page is under construction. Check back soon or [contact us](mailto:support@flagmint.com) if you need this information now.
-</Note>
+When a request fails, Flagmint returns a JSON body with a status code, a short error name, and a human-readable message. Use the status code for control flow; use `message` (and `details` when present) for debugging.
+
+## Error response shape
+
+Most errors look like this:
+
+```json
+{
+  "statusCode": 404,
+  "error": "ResourceNotFound",
+  "message": "Flag not found"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `statusCode` | number | Same HTTP status as the response |
+| `error` | string | Error class / name (e.g. `BadRequestError`, `ValidationError`) |
+| `message` | string | What went wrong |
+
+### Validation errors (400)
+
+Invalid request bodies or params (schema / TypeBox validation) return an extra `details` array:
+
+```json
+{
+  "statusCode": 400,
+  "error": "ValidationError",
+  "message": "body/run_at must match format \"date-time\"",
+  "details": [
+    {
+      "path": "body/run_at",
+      "message": "must match format \"date-time\""
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `details` | array | Per-field validation problems (present only for schema validation failures) |
+
+---
+
+## Status codes
+
+| Code | Meaning | Typical causes |
+|------|---------|----------------|
+| **400** | Bad Request | Missing/invalid fields, bad IANA timezone, `run_at` not in the future, malformed JSON |
+| **401** | Unauthorized | Missing or expired Bearer token / API key |
+| **403** | Forbidden | Authenticated but not allowed (e.g. viewer calling an editor-only route) |
+| **404** | Not Found | Unknown project, flag, schedule, or other resource id |
+| **409** | Conflict | Duplicate key, second pending schedule on the same flag, invalid state transition (e.g. pause when already applied) |
+| **429** | Too Many Requests | Rate limit exceeded on a protected route (login, evaluate, create flag, etc.) |
+| **500** | Internal Server Error | Unexpected server failure — retry later; contact support if it persists |
+| **503** | Service Unavailable | Temporary unavailability (maintenance or upstream dependency) |
+
+Success responses use **200** (OK) or **201** (Created) with a different envelope (`statusCode`, `message`, optional `data`). Those are documented on each endpoint page in the [API playground](/api-reference/project/post-projects).
+
+---
+
+## Examples by status
+
+### 401 Unauthorized
+
+```json
+{
+  "statusCode": 401,
+  "error": "Unauthorized",
+  "message": "Unauthorized"
+}
+```
+
+Include a valid token:
+
+```bash
+curl https://api.flagmint.com/projects/ \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+### 403 Forbidden
+
+```json
+{
+  "statusCode": 403,
+  "error": "ForbiddenError",
+  "message": "Forbidden"
+}
+```
+
+Your role is not allowed for that action (for example, creating or pausing a [scheduled release](/concepts/scheduled-releases) requires editor access).
+
+### 404 Not Found
+
+```json
+{
+  "statusCode": 404,
+  "error": "ResourceNotFound",
+  "message": "Schedule not found"
+}
+```
+
+### 409 Conflict
+
+Used for duplicates and state conflicts:
+
+```json
+{
+  "statusCode": 409,
+  "error": "Duplicate Error",
+  "message": "This flag already has a pending schedule. Pause or cancel it first."
+}
+```
+
+```json
+{
+  "statusCode": 409,
+  "error": "ConflictError",
+  "message": "Cannot pause a schedule in status applied"
+}
+```
+
+### 429 Too Many Requests
+
+```json
+{
+  "statusCode": 429,
+  "error": "Error",
+  "message": "Too Many Requests"
+}
+```
+
+Back off and retry. Some routes (login, evaluate, fire drill) have tighter limits than others.
+
+### 500 Internal Server Error
+
+```json
+{
+  "statusCode": 500,
+  "error": "Error",
+  "message": "Internal Server Error"
+}
+```
+
+Handlers often sanitize unexpected failures so clients do not receive stack traces. If you need help, contact [support@flagmint.com](mailto:support@flagmint.com) with the request time, path, and org/project ids.
+
+---
+
+## How errors are produced
+
+1. **Thrown domain errors** (`BadRequestError`, `ResourceNotFound`, `ForbiddenError`, `ConflictError`, `DuplicateError`) set `statusCode` and become the JSON body above.
+2. **Schema validation** (invalid body/params) → **400** with `error: "ValidationError"` and `details`.
+3. **Uncaught exceptions** without a status → **500**.
+
+You can exercise these responses from any endpoint page that documents error statuses — open the interactive playground, send a bad request, and inspect the response panel.
+
+---
+
+## Related
+
+- [API introduction](/api-reference/introduction) — base URL and auth overview  
+- [Scheduled releases](/concepts/scheduled-releases) — common 400/409 cases for pause, resume, and create  
+- [Feature flags](/concepts/flags) — duplicate key and template create conflicts  

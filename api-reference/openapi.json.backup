@@ -12750,10 +12750,12 @@
                         },
                         "customEventCounts": {
                           "type": "object",
+                          "propertyNames": {
+                            "type": "string"
+                          },
                           "additionalProperties": {
                             "type": "number"
-                          },
-                          "description": "Counts keyed by custom event name"
+                          }
                         },
                         "avgResponseTime": {
                           "type": "object",
@@ -27002,7 +27004,7 @@
         "tags": [
           "Scheduled releases"
         ],
-        "description": "Pause a pending schedule so it will not apply at run_at. Keeps the booked time; removes the delayed job until resume.",
+        "description": "Pause a pending schedule so it will not apply at run_at. Keeps the booked time; remove the delayed job until resume.",
         "parameters": [
           {
             "schema": {
@@ -27738,7 +27740,7 @@
         "tags": [
           "Scheduled releases"
         ],
-        "description": "Update action, run_at, and timezone on a pending schedule. Re-enqueues the delayed apply job when status is scheduled. Paused schedules stay paused until resume.",
+        "description": "Update action, run_at, and timezone on a pending schedule. Re-enqueues the delayed apply job when status is scheduled.",
         "requestBody": {
           "content": {
             "application/json": {

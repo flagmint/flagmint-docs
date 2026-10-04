@@ -96,6 +96,12 @@ Use kill switches for:
 
 Activating a kill switch takes effect within seconds across all connected SDKs.
 
+## Scheduled release
+
+A **scheduled release** books that on/off flip for a future date and time. You pick the wall clock in your timezone; Flagmint stores UTC and applies the change when the moment arrives — including to connected SDKs. You can pause, resume, edit, or cancel before it runs.
+
+Unlike a [rollout](/concepts/rollouts), this is a one-shot active/inactive change, not a percentage ramp. Full guide: [Scheduled releases](/concepts/scheduled-releases) (API **v1.7.0+** / dashboard **v1.5.0+**).
+
 ## Evaluation Context
 
 The evaluation context is the information your SDK sends to Flagmint when evaluating flags. Targeting rules match against this context.
