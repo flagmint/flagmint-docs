@@ -115,6 +115,7 @@
             "group": "Server-Side SDKs",
             "pages": [
               "sdks/nodejs",
+              "sdks/nodejs-local-evaluation",
               "sdks/go"
             ]
           },

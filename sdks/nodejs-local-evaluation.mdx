@@ -1,0 +1,166 @@
+---
+title: "JavaScript — Local evaluation (config sync)"
+description: "Evaluate flags in your app with signed rules — API 1.7.0+, flagmint-js-sdk 2.2.1+, and how usage meters apply."
+---
+
+<Note>
+  **Requires Flagmint API v1.7.0+** and **`flagmint-js-sdk` v2.2.1+**. See the [changelog](/resources/changelog#v170).
+</Note>
+
+By default the JavaScript SDK uses **server evaluation**: Flagmint computes flag values and streams the results to your app. **Local evaluation** (config sync) instead downloads **signed flag rules** so `getFlag()` runs **in your process** — no network on the read path after the rules are warm.
+
+```
+Server evaluation                 Local evaluation (config sync)
+─────────────────                 ──────────────────────────────
+Client opens stream               Client opens stream (config mode)
+Server pushes flag *values*       Server pushes signed *rules*
+getFlag() reads last values       getFlag() evaluates rules locally
+```
+
+Classic server evaluation remains the default. Nothing breaks if you leave `configSync` off.
+
+## When to use it
+
+| Situation | Recommendation |
+|-----------|----------------|
+| High-volume Node / web servers calling `getFlag` often | Local — sub-millisecond reads, less stream chatter |
+| Multi-worker Node (shared Redis for rules) | Local — warm start after restart without a full re-download every time |
+| Simple apps, low traffic | Server evaluation is fine |
+| You need every decision counted as a server evaluation for billing | Stay on server evaluation (see [Usage](#how-this-affects-usage)) |
+
+## Requirements
+
+| Component | Minimum |
+|-----------|---------|
+| Flagmint API | **1.7.0+** |
+| JavaScript SDK | **`flagmint-js-sdk` 2.2.1+** |
+| Node.js | 18+ with an `EventSource` polyfill (for example `eventsource`) |
+| Org access | Config sync may be **gradually enabled** per organization while we roll out |
+
+<Warning>
+  Use **2.2.1 or later**. An earlier **2.2.0** listing on npm shipped incomplete runtime code for config sync. Upgrade before relying on local evaluation in production.
+</Warning>
+
+## Quick start
+
+```javascript
+import { FlagClient } from 'flagmint-js-sdk';
+import EventSource from 'eventsource'; // Node only
+
+const client = new FlagClient({
+  apiKey: process.env.FLAGMINT_API_KEY,
+  enableFlagmint: true,
+  configSync: true,           // opt into local evaluation
+  enableOfflineCache: true,   // persist rules between restarts (default true)
+  EventSourceImpl: EventSource,
+  context: {
+    user: { key: 'server-1', plan: 'pro' },
+  },
+});
+
+await client.ready();
+
+// Evaluates locally against signed rules — no network on this call
+const showBanner = client.getFlag('show_banner', false);
+```
+
+### What the stream does in config mode
+
+1. Handshake may exchange keys so this connection gets its **own** signing secret (the secret never travels on the wire).
+2. You receive signed **`lease`**, **`fullConfig`**, and **`delta` / `deltas`** events (catch-up when you reconnect).
+3. If the lease expires, the SDK **fail-closes** to defaults only (no targeting from stale rules) and reconnects for a fresh snapshot.
+4. Optional: `GET /evaluator/v2/flags/config` for a signed snapshot without holding a stream open.
+
+Details: [Node.js / JavaScript SDK](/sdks/nodejs) and [streaming evaluation](/api-reference/evaluate).
+
+## Caching rules (browser vs Node)
+
+| Environment | Default | Across process restarts |
+|-------------|---------|-------------------------|
+| Browser | `localStorage` rules key | Yes, while the lease is valid |
+| Node (no adapter) | In-memory only | No — next boot is a cold `fullConfig` |
+| Node + `cacheAdapter` (e.g. Redis) | Your store | Yes — workers can share the same snapshot |
+
+Key layout used by the SDK helpers (match these in Redis):
+
+| Kind | Key | Notes |
+|------|-----|--------|
+| Rules | `flagmint_{apiKey}_rules` | Lease `expiresAt` gates reuse — **not** a Redis TTL |
+| Flags | `flagmint_{apiKey}_flags` | Evaluated-flag cache; wall-clock TTL on load |
+| Context | `flagmint_{apiKey}_context` | Optional |
+
+Never store session MAC / ECDH material in Redis — only the rules snapshot (`version`, `expiresAt`, `flags`, `segments`).
+
+### Example: Redis `cacheAdapter` (in your app)
+
+Build the adapter in **your** service (not inside the SDK package). Sketch:
+
+```javascript
+function createRedisCacheAdapter(redis) {
+  const rulesKey = (apiKey) => `flagmint_${apiKey}_rules`;
+  // …also flags / context keys if you want them
+
+  return {
+    async loadFlags(apiKey, ttl) { /* JSON { ts, data }; honor ttl */ },
+    async saveFlags(apiKey, data) { /* … */ },
+    async loadContext(apiKey) { /* … */ },
+    async saveContext(apiKey, ctx) { /* … */ },
+    async loadRulesSnapshot(apiKey) {
+      const raw = await redis.get(rulesKey(apiKey));
+      return raw ? JSON.parse(raw) : null; // validate shape; return null on error
+    },
+    async saveRulesSnapshot(apiKey, snapshot) {
+      await redis.set(rulesKey(apiKey), JSON.stringify(snapshot));
+    },
+  };
+}
+
+const client = new FlagClient({
+  apiKey: process.env.FLAGMINT_API_KEY,
+  configSync: true,
+  enableOfflineCache: true,
+  cacheAdapter: createRedisCacheAdapter(redis),
+  EventSourceImpl: EventSource,
+});
+```
+
+On a warm restart with a **valid** (non-expired) snapshot, the client hydrates from Redis and reconnects with catch-up (`sinceVersion`) instead of always pulling a full config.
+
+## How this affects usage
+
+With **API 1.7.0+**, included allowance is one **usage pot** for the billing period. Credits are spent by:
+
+| Activity | Spends from the pot? |
+|----------|----------------------|
+| Server evaluations (REST evaluate, mobile / server-eval streams) | Yes |
+| Live **sessions** (SSE / WebSocket opens) | Yes |
+| **Observed contexts** | Yes |
+| **Track** / **track error** events | Yes |
+| **Local** `getFlag` in config-sync mode | **No** |
+
+Opening the config-sync stream still counts as a **session**. High-volume local reads do **not** burn the pot the way repeated server evaluations would.
+
+Optional plan **brakes** can cap sessions, contexts, or track alone. With on-demand overage on, the monthly **spend cap** is the stop — not a surprise hard block mid-overage.
+
+Early-access orgs may see a **“What spent the pot”** breakdown on Plans. Full detail: [Usage](/billing/usage).
+
+### Evaluations analytics
+
+When analytics is on for a flag, call-site `getFlag` can still report into your **Evaluations** charts. Those reports are for product insight — they are **not** billable meter spend.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Node.js / JavaScript SDK" icon="js" href="/sdks/nodejs">
+    Install, transport, and FlagClient options
+  </Card>
+  <Card title="Usage & meters" icon="gauge" href="/billing/usage">
+    What fills the included pot
+  </Card>
+  <Card title="Changelog v1.7.0" icon="newspaper" href="/resources/changelog#v170">
+    Product notes for this release
+  </Card>
+  <Card title="Go local evaluation" icon="golang" href="/sdks/go/local-evaluation">
+    In-process evaluation for Go
+  </Card>
+</CardGroup>
