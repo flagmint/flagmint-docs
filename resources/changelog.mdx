@@ -5,11 +5,24 @@ description: "Product and API changes in Flagmint."
 
 Release notes for the Flagmint API and dashboard. SDK package versions are listed in each SDK guide.
 
+<Note>
+  **Current API is v1.7.0** (October 2026). There is no API v1.8.0 yet — use the pairing table under v1.7.0 below.
+</Note>
+
 <Update label="v1.7.0" description="Released October 4, 2026">
 
 ## Highlights
 
-**Schedule a release** so a flag turns on or off when you need it — launches, cutovers, and after-hours changes, without watching the clock.
+**Schedule a release** when you need a flag on or off at a set time. **Clearer usage** shows what fills your monthly allowance. JavaScript teams can run **local evaluation** so busy apps decide flags without a round trip every time.
+
+## Version pairing (what to install)
+
+| Piece | Version |
+|-------|---------|
+| Flagmint API | **1.7.0** |
+| Dashboard (scheduled releases) | **1.5.0+** |
+| Dashboard (usage pot / meters UI) | **1.4.0+** (early-access breakdown when the API enables it) |
+| JavaScript SDK (local evaluation) | **`flagmint-js-sdk` 2.2.1+** |
 
 ## Scheduled releases
 
@@ -29,7 +42,31 @@ You can hold a schedule without throwing away the time you already picked.
 
 Editing the schedule (new time or on/off) works whether it’s scheduled or paused. A paused schedule stays paused until you resume; picking a new future time does not auto-arm it.
 
-Requires **API 1.7.0+** and **dashboard 1.5.0+**. Full guide: [Scheduled releases](/concepts/scheduled-releases). Recurring schedules and email/Slack reminders are planned next.
+Full guide: [Scheduled releases](/concepts/scheduled-releases). Recurring schedules and email/Slack reminders are planned next.
+
+## Usage pot and meters
+
+Plans still have an included monthly allowance. What changed is how we **show** and **count** the work that fills it.
+
+- One **included usage** pot for the billing period — server evaluations, live sessions, observed contexts, and track events each use a credit from that pot
+- **Local** `getFlag` in config-sync mode does **not** spend that pot (great for high-volume web/server reads)
+- On Plans, early-access orgs see a simple breakdown of what spent the pot — everyone else keeps the classic view until we open it more widely
+- Optional **brakes** on sessions, contexts, or track alone (when your plan defines them). With on-demand overage on, the monthly spend cap is what stops you — not a surprise hard block mid-overage
+- Approaching or hitting your included limit? Paid orgs get clearer email at **80% / 90% / 100%**, including when limits reset
+
+Full guide: [Usage](/billing/usage).
+
+## Local evaluation (config sync)
+
+Signed rules to the client, evaluate on-device, reconnect with catch-up instead of always re-downloading everything.
+
+- Safer for multi-server Node apps that plug in their own cache (for example Redis) so workers share the same rules across restarts
+- Call-site reads can still feed your **Evaluations** charts when analytics is on for that flag — without burning billing credits
+- Local `getFlag` does **not** spend from the included usage pot (opening a live session still does)
+
+**Requirements:** Flagmint **API 1.7.0+** and **`flagmint-js-sdk` 2.2.1+** (do not use the incomplete 2.2.0 runtime build). Config sync may still be **gradually enabled** per organization.
+
+Full guide: [JavaScript — Local evaluation](/sdks/nodejs-local-evaluation).
 
 </Update>
 
@@ -37,7 +74,7 @@ Requires **API 1.7.0+** and **dashboard 1.5.0+**. Full guide: [Scheduled release
 
 ## Highlights
 
-JavaScript apps can optionally **download signed flag rules** and evaluate them **on the device** (config sync), instead of asking the server for every flag answer on the stream. Legacy server evaluation stays the default.
+Early preview of **local evaluation** for JavaScript (config sync). Production requirements and usage-pot metering are documented under **v1.7.0** — use **API 1.7.0+** and **`flagmint-js-sdk` 2.2.1+**.
 
 ## Config sync (local evaluation)
 
@@ -49,17 +86,17 @@ Opt-in for the JavaScript SDK. The API still supports the classic SSE “evaluat
 - Expired lease → fail closed (defaults only; no offline targeting abuse)
 - Soft warnings when a rules snapshot is very large (does not hard-fail by default)
 
-**JavaScript SDK (`flagmint-js-sdk` v2.1)**
+**JavaScript SDK (`flagmint-js-sdk` v2.1+; use v2.2.1+ for production Node)**
 
 - Set `configSync: true` to use local evaluation
-- Optional local cache of rules across page reloads
+- Optional local cache of rules across page reloads (or your own Redis / file adapter in Node)
 - Optional `debugLog` lines for stream connect / disconnect (for support)
 
 See the [Node.js / JavaScript SDK](/sdks/nodejs).
 
 ## Billing meters (recording only)
 
-The API now records separate usage meters such as **connections**, **observed contexts**, and **track** events. Plan **limits on those meters are not enforced yet** — included usage and overage still follow your existing evaluation / API-call plan. Meter-based plan limits will follow in a later release.
+The API started recording separate usage meters such as **connections**, **observed contexts**, and **track** events. Plan limits and the unified usage pot landed in **v1.7.0**.
 
 ## Other notes
 

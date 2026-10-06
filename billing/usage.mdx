@@ -1,81 +1,80 @@
 ---
 title: "Usage"
-description: "How Flagmint counts API calls, enforces monthly evaluation quota, and shows usage in the dashboard."
+description: "How Flagmint counts included usage, meters, and overage — including local evaluation (config sync)."
 ---
 
-Usage is tracked **per organisation**, not per seat or per project. The evaluation quota resets on the **UTC calendar month**.
+Usage is tracked **per organisation**, not per seat or per project. The included allowance resets with your **billing period** (see Plans in the dashboard for when limits reset).
 
-View current usage in the dashboard under **Settings → Billing**, or via [`GET /billing/usage`](/api-reference/billing/get-current-month-usage-for-organization).
+View current usage under **Settings → Billing**, or via [`GET /billing/usage`](/api-reference/billing/get-current-month-usage-for-organization).
 
-## What is tracked
+<Note>
+  **API v1.7.0+** introduces a unified **included usage** pot and optional meter brakes. Pair local evaluation with **`flagmint-js-sdk` 2.2.1+**. See [JavaScript — Local evaluation](/sdks/nodejs-local-evaluation).
+</Note>
 
-| Meter | What it measures | When it is checked |
-|-------|------------------|--------------------|
-| API calls | Billable evaluations in the current UTC month | Before every REST evaluate, SSE stream open, SSE context update, and WebSocket context message |
-| Flags | Active flags across all projects | When you create a flag |
-| Projects | Active projects | When you create a project |
+## Included usage pot
 
-Flag and project limits return **403** at create time. Evaluation quota returns **429** (or a `quota_exceeded` SSE event) and does not create or delete flags.
+Plans include a monthly **usage** allowance (credits). These activities each spend **1 credit** from that pot:
 
-Included amounts are on the [plan](/billing/plans). Custom plans set a contract limit and do not charge overage.
+| Meter | What it is |
+|-------|------------|
+| **Server evaluations** | Flagmint computed flags on the server (REST evaluate, mobile WebSocket / server-eval streams) |
+| **Sessions** | Live SDK opens — SSE (web/server) or WebSocket (mobile) |
+| **Observed contexts** | Context reports used for insights / telemetry |
+| **Track events** | Accepted custom `track()` events |
+| **Track errors** | Accepted `trackError()` events |
 
-## What counts as an API call
+These do **not** spend from the pot:
 
-These evaluation requests increment the monthly meter:
+- **Local** `getFlag` / `getFlags` when the JS SDK runs with `configSync: true` ([local evaluation](/sdks/nodejs-local-evaluation))
+- ASL handshake
+- SSE heartbeats / WebSocket ping-pong
+- Failed requests (4xx / 5xx), login, and dashboard reads
 
-- REST `POST /evaluator/evaluate`
-- Opening `GET /evaluator/v2/flags/stream`
-- SSE `POST /evaluator/v2/flags/context`
-- WebSocket `type: context` messages
+Flag and project **resource** limits (how many flags/projects you can create) are separate and still return **403** at create time.
 
-These do **not**:
+## Optional meter brakes
 
-- [`POST /auth/asl-handshake`](/api-reference/evaluation/asl-handshake)
-- SSE heartbeat comments (`: heartbeat`) and WebSocket ping/pong
-- Dashboard-driven `flags` pushes on an already-open stream
-- Failed requests (4xx, 5xx)
-- Login, token refresh, health checks, and dashboard reads
+Your plan may also define optional caps on sessions, observed contexts, track, or track errors alone. Behaviour:
 
-The full list is on [Plans & Pricing](/billing/plans#what-counts-as-an-api-call).
+- **Free**, or paid with overage **off** — hitting a brake can hard-stop that activity (for example stream open / track returns quota exceeded).
+- **Paid with on-demand overage on** — the monthly **spend cap** is what stops you; a lower meter brake does not surprise-block you mid-overage.
 
-## When you hit the evaluation limit
+## When you hit the included limit
 
-| Plan | What the SDK sees |
-|------|-------------------|
-| **Free** | Throttled, never charged. Cached flags keep serving. REST and context updates return **429** with `retryAfter: 60` and a last snapshot in `data`. An SSE open emits `quota_exceeded` then closes. |
-| **Pro / Growth** | Hard block after a **20% grace buffer** (for example Pro 50K included → enforcement at 60K). REST and context updates return **429** with `error: QUOTA_EXCEEDED` and `retryAfter: 3600`. The stream emits `quota_exceeded` then closes. |
-| **Custom** | Contract limit, no overage line items |
+| Plan | What you see |
+|------|----------------|
+| **Free** | Hard stop at the included pot. Cached / local flags may keep serving; new billable activity is throttled (`429` or SSE `quota_exceeded`). |
+| **Pro / Growth (overage off)** | Hard stop at the included pot (plus any grace your plan defines). |
+| **Pro / Growth (overage on)** | Usage can continue into on-demand blocks; the **spend cap** (if set) is the ceiling. |
+| **Custom** | Contract limit; overage terms as agreed |
 
-`upgradeUrl` on quota payloads is `/settings/subscription`.
+Paid orgs get clearer email as you approach or hit the pot (**80% / 90% / 100%**), including when limits reset.
 
-The JavaScript SDK reports this as `ERR_RATE_LIMITED` on `onError`. `ready()` still resolves if a cache snapshot exists. See [Error handling](/sdks/nodejs#error-handling).
+The JavaScript SDK surfaces quota as `ERR_RATE_LIMITED` on `onError`. `ready()` still resolves if a snapshot exists. See [Error handling](/sdks/nodejs#error-handling).
 
 <Info>
-  Opening a stream and posting a context update both go through the quota guard. Reconnect storms and `updateContext()` on every Node HTTP request against a singleton client will burn the monthly allowance quickly.
+  Opening a live session still spends a credit even in config-sync mode. Reconnect storms and `updateContext()` on every HTTP request against a singleton client will burn allowance quickly — local `getFlag` will not.
 </Info>
 
-## Overage (paid plans)
+## Dashboard
 
-Pro and Growth are billed for usage **above the grace limit**, in 1M-call blocks, on the Stripe invoice for that billing period. Rates are on [Overage](/billing/plans#overage).
-
-Free organisations are never invoiced for evaluations.
-
-## Alerts
-
-- Dashboard usage on **Settings → Billing**
-- [`quota.warning` webhooks](/platform/webhooks) at 80%, 90%, and 100% of the evaluation quota
-- Email when a Free organisation approaches the monthly cap
+- **Settings → Billing / Plans** — included usage used vs limit
+- Early-access orgs may see **What spent the pot** (breakdown by meter). Others keep the classic evaluations view until we open the breakdown more widely.
 
 ## Usage API
 
-Admins can read the current month from [`GET /billing/usage`](/api-reference/billing/get-current-month-usage-for-organization):
+Admins can read current usage from [`GET /billing/usage`](/api-reference/billing/get-current-month-usage-for-organization).
 
-```json
-{
-  "apiCalls": { "used": 12400, "limit": 50000 },
-  "flags": { "used": 12, "limit": 25 },
-  "projects": { "used": 2, "limit": 3 }
-}
-```
+On API **1.7.0+**, responses may include:
 
-`limit` is `null` when the plan does not cap that meter.
+- `usage` — pot used / limit  
+- `breakdown` / `meters` — when your org has the usage-wallet UI enabled  
+- `features.usageWallet` — whether the dashboard should show the pot breakdown  
+
+`limit` is `null` when that meter is unlimited on the plan.
+
+## Related
+
+- [Plans & Pricing](/billing/plans)
+- [JavaScript — Local evaluation](/sdks/nodejs-local-evaluation)
+- [Changelog v1.7.0](/resources/changelog#v170)

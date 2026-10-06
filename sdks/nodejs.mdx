@@ -11,11 +11,11 @@ The Flagmint JavaScript SDK evaluates feature flags in browsers and Node.js. Aft
   <Card title="Quick Start" icon="rocket" href="#quick-start">
     Browser and Node.js setup
   </Card>
+  <Card title="Local evaluation" icon="microchip" href="/sdks/nodejs-local-evaluation">
+    Config sync — API 1.7.0+ / SDK 2.2.1+
+  </Card>
   <Card title="Configuration" icon="gear" href="#configuration">
     Transport, cache, and endpoints
-  </Card>
-  <Card title="Node.js servers" icon="server" href="#nodejs--express">
-    EventSource polyfill and per-process clients
   </Card>
   <Card title="Streaming API" icon="bolt" href="/api-reference/evaluate">
     Handshake, SSE stream, and context updates
@@ -161,9 +161,10 @@ On Flagmint Cloud, SSE streams are expected to reconnect about every **15 minute
 | `transportMode` | `auto`, `sse`, or `long-polling` | `auto` | `auto` tries SSE, then long-polling |
 | `EventSourceImpl` | EventSource constructor | browser global | **Required in Node** |
 | `shareConnection` | `boolean` | `true` in browsers with `BroadcastChannel`, `false` in Node | One stream per API key across same-origin documents |
-| `enableOfflineCache` | `boolean` | `true` | Load/save flags via the cache adapter |
+| `enableOfflineCache` | `boolean` | `true` | Load/save flags (and rules when `configSync`) via the cache adapter |
+| `configSync` | `boolean` | `false` | **Local evaluation** — download signed rules and run `getFlag` in-process. Needs **API 1.7.0+** and **SDK 2.2.1+**. See [Local evaluation](/sdks/nodejs-local-evaluation) |
 | `persistContext` | `boolean` | `false` | Persist context in the cache adapter |
-| `cacheAdapter` | `CacheAdapter` | localStorage helpers | Custom cache (Redis, files, and similar) |
+| `cacheAdapter` | `CacheAdapter` | localStorage helpers | Custom cache (Redis, files, and similar). Include `loadRulesSnapshot` / `saveRulesSnapshot` for config sync |
 | `restEndpoint` | `string` | env default | Override the long-polling / evaluate URL |
 | `sseEndpoint` | `string` | env default | Override the SSE base URL (`/stream` and `/context`) |
 | `handshakeEndpoint` | `string` | env default | Override the ASL handshake URL. Use with `sseEndpoint` for self-hosted gateways |
