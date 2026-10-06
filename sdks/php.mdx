@@ -89,7 +89,7 @@ For a Supervisor refresh loop, see `bin/config-sync-worker.php` in the package.
 |---------|---------|-------------|
 | `ArrayMemoryAdapter` | built-in default | Single process / tests |
 | `RedisAdapter` | built-in (+ Predis) | Share rules across FPM workers |
-| Custom `CacheAdapter` | your code | Any store that implements the interface |
+| Custom `CacheAdapter` | your code | Any store that implements the CacheAdapter interface |
 
 Lease `expiresAt` (epoch ms) is the fail-closed source of truth — do not rely on Redis TTL alone.
 
