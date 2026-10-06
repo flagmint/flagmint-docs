@@ -7,6 +7,12 @@ description: "Server-side PHP SDK with local evaluation, REST config-sync, and p
 
 The Flagmint PHP SDK evaluates feature flags **in your PHP process** after downloading signed rules over REST. That fits PHP-FPM: no long-lived SSE in request workers, and no network round-trip on every `getFlag`.
 
+<Note>
+  **Hosts:** PHP never uses `stream.flagmint.com`. That host is **SSE-only** (JavaScript / browsers).
+  This SDK talks to **`api.flagmint.com`** for ASL handshake, `GET /evaluator/v2/flags/config`,
+  and `/evaluator/events` (override with `restEndpoint` / `handshakeEndpoint` or `env`).
+</Note>
+
 <CardGroup cols={2}>
   <Card title="Laravel package" icon="laravel" href="/sdks/laravel">
     Facade, Blade, middleware, and Artisan on top of this SDK

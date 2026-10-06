@@ -176,7 +176,20 @@ On Flagmint Cloud, SSE streams are expected to reconnect about every **15 minute
 | `onError` | callback | — | Auth, quota, transport, and context errors. `ready()` still resolves |
 
 <Note>
-  **Endpoint auto-detection** uses `env` (or `NODE_ENV`): production → `api.flagmint.com`, staging → `staging-api.flagmint.com`, development → `localhost:3000`. Override with `restEndpoint`, `sseEndpoint`, and `handshakeEndpoint` for self-hosted gateways.
+  **Hosts:** `stream.flagmint.com` (and `staging-stream…`) is for **SSE only** —
+  `GET …/flags/stream` and related live push. Handshake, evaluate, events, and
+  REST config-sync (`GET …/flags/config`) use **`api.flagmint.com`** (or
+  `staging-api…` / localhost). Do not point REST clients at the stream host.
+
+  **Endpoint auto-detection** uses `env` (or `NODE_ENV`):
+
+  | `env` | SSE (`sseEndpoint`) | REST / handshake |
+  |-------|---------------------|------------------|
+  | `production` | `https://stream.flagmint.com/evaluator/v2/flags` | `https://api.flagmint.com/…` |
+  | `staging` | `https://staging-stream.flagmint.com/…` | `https://staging-api.flagmint.com/…` |
+  | `development` | `http://localhost:3000/evaluator/v2/flags` | `http://localhost:3000/…` |
+
+  Override with `restEndpoint`, `sseEndpoint`, and `handshakeEndpoint` for self-hosted gateways.
 </Note>
 
 ### Context Structure

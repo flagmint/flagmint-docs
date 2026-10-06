@@ -7,6 +7,8 @@ description: "Laravel package for Flagmint — facade, Blade @feature, middlewar
 
 `flagmint/laravel` wraps the [PHP SDK](/sdks/php) with Laravel ergonomics: service provider, facade, Blade directives, request middleware, and Artisan refresh. Evaluation stays **local** after rules are synced.
 
+Same hosts as PHP: **`api.flagmint.com`** for handshake / config / events. Do not configure Laravel against `stream.flagmint.com` — that host is SSE-only for the JavaScript SDK.
+
 ## Requirements
 
 | Component | Minimum |
