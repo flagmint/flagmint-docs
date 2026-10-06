@@ -7,6 +7,8 @@ authMethod: none
 
 Opens a `text/event-stream`. Clients must present a valid `sessionId` from [ASL handshake](/api-reference/evaluation/asl-handshake). Do not send `x-api-key` or `Authorization` on this request — authentication is the session token, and it cannot be reused.
 
+On Flagmint Cloud, this route is served from **`stream.flagmint.com`** (SSE only). Handshake, evaluate, events, and REST `flags/config` stay on **`api.flagmint.com`**. PHP and other REST-only SDKs never call the stream host.
+
 Named events: `connected` (store `connectionId`), `flags`, `quota_exceeded`, `error`. Heartbeats are SSE comments (`: heartbeat`) and are not exposed by EventSource.
 
 <Info>
