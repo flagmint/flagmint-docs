@@ -1,0 +1,115 @@
+---
+title: "Laravel SDK"
+description: "Laravel package for Flagmint — facade, Blade @feature, middleware, Artisan refresh, and Laravel Cache"
+---
+
+# Flagmint Laravel SDK
+
+`flagmint/laravel` wraps the [PHP SDK](/sdks/php) with Laravel ergonomics: service provider, facade, Blade directives, request middleware, and Artisan refresh. Evaluation stays **local** after rules are synced.
+
+## Requirements
+
+| Component | Minimum |
+|-----------|---------|
+| PHP | **8.2+** |
+| Laravel | **11** or **12** (via `illuminate/support`) |
+| Core SDK | [`flagmint/php-sdk`](/sdks/php) `^0.1` |
+
+## Installation
+
+```bash
+composer require flagmint/laravel
+php artisan vendor:publish --tag=flagmint-config
+```
+
+```env
+FLAGMINT_SDK_KEY=fm_sdk_your_key
+# or FLAGMINT_API_KEY=fm_sdk_your_key
+
+FLAGMINT_ENABLE=true
+FLAGMINT_ENV=production
+
+# laravel (default) | memory | redis | custom
+FLAGMINT_CACHE_DRIVER=laravel
+# FLAGMINT_CACHE_STORE=redis
+FLAGMINT_QUEUE_EVENTS=true
+```
+
+On boot, call ready once (e.g. in a service provider or middleware) if you want an eager warm:
+
+```php
+use Flagmint\Laravel\Facades\Flagmint;
+
+Flagmint::ready();
+```
+
+Or schedule refreshes:
+
+```bash
+php artisan flagmint:refresh
+```
+
+## Facade
+
+```php
+use Flagmint\Laravel\Facades\Flagmint;
+
+if (Flagmint::bool('new-checkout')) {
+    // uses request context when flagmint.context middleware ran
+}
+
+// Explicit context (jobs, CLI, Octane-safe):
+Flagmint::bool('new-checkout', false, [
+    'kind' => 'user',
+    'key' => (string) $userId,
+    'plan' => 'premium',
+]);
+```
+
+## Middleware
+
+Attach the authenticated user as evaluation context:
+
+```php
+Route::middleware(['auth', 'flagmint.context'])->group(function () {
+    // Flagmint::bool('x') → kind=user, key=<auth id>
+});
+```
+
+## Blade
+
+```blade
+@feature('new-checkout')
+  New checkout
+@else
+  Classic checkout
+@endfeature
+```
+
+Optional fallback: `@feature('new-checkout', true)`.
+
+## Caching
+
+Default `FLAGMINT_CACHE_DRIVER=laravel` uses your app’s cache store so FPM workers share one rules snapshot (configure Redis/Memcached on Laravel as usual).
+
+| Driver | Behavior |
+|--------|----------|
+| `laravel` | `LaravelCacheAdapter` (default) |
+| `memory` | Process-local only |
+| `redis` | Direct Predis via `FLAGMINT_REDIS_URL` |
+| `custom` | `FLAGMINT_CACHE_ADAPTER` FQCN implementing `CacheAdapter` |
+
+## Analytics events
+
+`Flagmint::track()` / `trackError()` buffer events and, when `FLAGMINT_QUEUE_EVENTS=true`, dispatch `FlushFlagmintEvents` so queue workers can POST `/evaluator/events`.
+
+## Octane
+
+The `FlagmintClient` is a singleton (shared rules). Always reset context via `flagmint.context` per request, or pass `$context` explicitly — never mutate one shared user context across concurrent requests.
+
+## Links
+
+- Packagist: [flagmint/laravel](https://packagist.org/packages/flagmint/laravel)
+- GitHub: [flagmint/flagmint-laravel](https://github.com/flagmint/flagmint-laravel)
+- Changelog: [CHANGELOG.md](https://github.com/flagmint/flagmint-laravel/blob/main/CHANGELOG.md)
+- Core PHP SDK: [PHP SDK](/sdks/php)

@@ -5,9 +5,9 @@ description: "Control local storage behavior with enableOfflineCache and persist
 
 # SDK Privacy and Caching Configuration
 
-By default, the Flagmint Client SDK initializes with local caching and context persistence enabled. This architecture is designed to reduce network latency, prevent UI flicker during flag evaluation, and provide an offline fallback.
+By default, the JavaScript SDK caches flags in the cache adapter (`localStorage` in the browser) via `enableOfflineCache: true`. Context persistence is **off** by default (`persistContext: false`).
 
-Because these features may use browser local storage (`localStorage`), enabling them can carry compliance obligations under frameworks such as the EU ePrivacy Directive and UK PECR, and may interact with GDPR requirements depending on how context data is defined.
+Because caching may use browser local storage (`localStorage`), enabling it can carry compliance obligations under frameworks such as the EU ePrivacy Directive and UK PECR, and may interact with GDPR requirements depending on how context data is defined.
 
 This guide explains how to control the SDK storage footprint so engineering implementation matches your privacy policy and user consent choices.
 
@@ -15,76 +15,111 @@ This guide explains how to control the SDK storage footprint so engineering impl
   This page provides technical implementation guidance, not legal advice. Confirm your final configuration with your legal or compliance team.
 </Note>
 
-## Privacy Parameters Reference
+## How these options relate to local evaluation
 
-When creating a Flagmint client, you can pass two privacy-sensitive options:
+These three options are **independent**. `configSync` does **not** override `enableOfflineCache` or `persistContext`.
 
-| Parameter | Type | Default | Technical Behavior | Common Compliance Relevance |
+| Option | Default | What it controls |
+|--------|---------|------------------|
+| `configSync` | `false` | **Local evaluation** — download signed rules and run `getFlag` in-process. See [Local evaluation](/sdks/nodejs-local-evaluation). |
+| `enableOfflineCache` | `true` | Load/save **flags** (and **rules** when `configSync` is on) through the cache adapter. |
+| `persistContext` | `false` | Load/save evaluation **context** through the cache adapter. |
+
+So yes: you can use `configSync: true` **and** keep caching. With both `configSync` and `enableOfflineCache` true, the SDK prefers the cached **rules** snapshot on boot; it still respects `persistContext` for context storage.
+
+Turning `enableOfflineCache` off with `configSync: true` still runs local evaluation — it just does not read/write rules or flags via the cache adapter.
+
+## Privacy parameters reference
+
+| Parameter | Type | Default | Technical behavior | Common compliance relevance |
 |---|---|---|---|---|
-| `enableOfflineCache` | `boolean` | `true` | Caches evaluated flag states in `localStorage` for faster subsequent loads. | ePrivacy Directive / PECR |
-| `persistContext` | `boolean` | `true` | Persists user context and targeting attributes across browser sessions. | GDPR and ePrivacy / PECR |
+| `enableOfflineCache` | `boolean` | `true` | Caches flags in the cache adapter; with `configSync`, also caches rules. Browser default adapter is `localStorage`. | ePrivacy Directive / PECR |
+| `persistContext` | `boolean` | `false` | Persists evaluation context across sessions via the cache adapter. | GDPR and ePrivacy / PECR |
 
-## Code Implementation Examples
+## Code examples
 
-### 1) Default Optimization (Recommended)
-
-Use this when feature flags are used for core application behavior such as feature gating, progressive rollout, or reliability controls.
+### 1) SDK defaults (cache on, context not persisted)
 
 ```ts
-import { FlagmintClient } from '@flagmint/sdk-browser';
+import { FlagClient } from 'flagmint-js-sdk';
 
-const flagmint = new FlagmintClient({
+const client = new FlagClient({
   apiKey: 'your-client-sdk-key',
-  enableOfflineCache: true, // Uses localStorage to improve load performance
-  persistContext: true      // Preserves targeting context across sessions
+  // enableOfflineCache: true  — default
+  // persistContext: false     — default
 });
 ```
 
-### 2) Strict Privacy Mode (No Local Storage)
+### 2) Cache on and persist context
+
+Use this when you want faster reloads and targeting context to survive page reloads.
+
+```ts
+import { FlagClient } from 'flagmint-js-sdk';
+
+const client = new FlagClient({
+  apiKey: 'your-client-sdk-key',
+  enableOfflineCache: true,
+  persistContext: true,
+});
+```
+
+### 3) No local storage writes
 
 Use this when local storage is not permitted by user choice or policy (for example, after a rejected consent decision for non-essential processing).
 
-Setting both values to `false` keeps operation in memory only, with no SDK writes to browser storage.
-
 ```ts
-import { FlagmintClient } from '@flagmint/sdk-browser';
+import { FlagClient } from 'flagmint-js-sdk';
 
-const flagmint = new FlagmintClient({
+const client = new FlagClient({
   apiKey: 'your-client-sdk-key',
-  enableOfflineCache: false, // In-memory evaluation only
-  persistContext: false      // Context is not persisted across reloads
+  enableOfflineCache: false, // no flags/rules cache writes
+  persistContext: false,     // context is not persisted across reloads
 });
 ```
 
-## Integrating with Cookie Banners (CMPs)
+### 4) Local evaluation with cache
+
+```ts
+import { FlagClient } from 'flagmint-js-sdk';
+
+const client = new FlagClient({
+  apiKey: 'your-client-sdk-key',
+  configSync: true,          // opt into local evaluation
+  enableOfflineCache: true,  // also cache rules between reloads
+  persistContext: false,     // still independent
+});
+```
+
+## Integrating with cookie banners (CMPs)
 
 If you use a Consent Management Platform (for example Cookiebot, OneTrust, or a custom consent banner), initialize the SDK from the user consent result.
 
 ```ts
-import { FlagmintClient } from '@flagmint/sdk-browser';
+import { FlagClient } from 'flagmint-js-sdk';
 
 // Replace with your CMP-specific consent check.
 const userHasConsentedToTracking = checkYourCMPConsent();
 
-const flagmint = new FlagmintClient({
+const client = new FlagClient({
   apiKey: 'your-client-sdk-key',
   enableOfflineCache: userHasConsentedToTracking,
-  persistContext: userHasConsentedToTracking
+  persistContext: userHasConsentedToTracking,
 });
 ```
 
-## Technical Disclosure for Legal and Compliance Teams
+## Technical disclosure for legal and compliance teams
 
-If your legal or compliance team needs implementation details for policy or consent banner disclosures, use the mapping below:
+If your legal or compliance team needs implementation details for policy or consent banner disclosures, use the mapping below (browser default cache helpers):
 
-- **Technology used:** Browser Local Storage (`localStorage`)
-- **Keys written:** `flagmint_ff_[apiKey]_flags` and `flagmint_ff_[apiKey]_context`
-- **Purpose:** Performance optimization, reduced network overhead, and cross-session targeting continuity
-- **Data stored:** Evaluated flag values (for example booleans or strings) and targeting context attributes configured by your integration
+- **Technology used:** Browser Local Storage (`localStorage`) when using the default cache adapter
+- **Keys written:** `flagmint_<apiKey>_flags`, `flagmint_<apiKey>_context`, and (with `configSync` + `enableOfflineCache`) `flagmint_<apiKey>_rules`
+- **Purpose:** Faster subsequent loads, optional cross-session targeting continuity, and (with config sync) warm rules on reload
+- **Data stored:** Evaluated flag values and/or signed rules snapshots; targeting context only when `persistContext` is `true`
 - **Third-party tracking:** The SDK does not create cross-site third-party tracking identifiers through these storage keys
 
-## Recommended Operational Pattern
+## Recommended operational pattern
 
-- Default to `enableOfflineCache: false` and `persistContext: false` until user consent state is known
-- Reinitialize with storage enabled only if your policy permits and consent has been granted
+- Start with `enableOfflineCache: false` and `persistContext: false` until user consent state is known, if your policy requires that
+- Enable storage only if your policy permits and consent has been granted
 - Keep context payloads minimal to reduce privacy exposure and simplify disclosures

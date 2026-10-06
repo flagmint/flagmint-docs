@@ -116,7 +116,9 @@
             "pages": [
               "sdks/nodejs",
               "sdks/nodejs-local-evaluation",
-              "sdks/go"
+              "sdks/go",
+              "sdks/php",
+              "sdks/laravel"
             ]
           },
           {
