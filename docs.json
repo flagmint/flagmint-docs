@@ -115,7 +115,10 @@
             "group": "Server-Side SDKs",
             "pages": [
               "sdks/nodejs",
-              "sdks/go"
+              "sdks/nodejs-local-evaluation",
+              "sdks/go",
+              "sdks/php",
+              "sdks/laravel"
             ]
           },
           {

@@ -1,0 +1,120 @@
+---
+title: "PHP SDK"
+description: "Server-side PHP SDK with local evaluation, REST config-sync, and pluggable cache adapters"
+---
+
+# Flagmint PHP SDK
+
+The Flagmint PHP SDK evaluates feature flags **in your PHP process** after downloading signed rules over REST. That fits PHP-FPM: no long-lived SSE in request workers, and no network round-trip on every `getFlag`.
+
+<CardGroup cols={2}>
+  <Card title="Laravel package" icon="laravel" href="/sdks/laravel">
+    Facade, Blade, middleware, and Artisan on top of this SDK
+  </Card>
+  <Card title="Local evaluation (JS)" icon="bolt" href="/sdks/nodejs-local-evaluation">
+    Same config-sync model as the JavaScript SDK
+  </Card>
+</CardGroup>
+
+## Key features
+
+- **Local evaluation** — signed rules via ASL ECDH + `GET /evaluator/v2/flags/config`
+- **Fail-closed leases** — after `expiresAt`, reads return your fallbacks until refresh
+- **Pluggable cache** — in-memory default; Redis adapter for multi-worker share
+- **Typed readers** — `bool`, `string`, `number`, `json`, plus `isEnabled`
+- **Per-call context** — pass user/org attributes on each evaluation (FPM-safe)
+
+## Requirements
+
+| Component | Minimum |
+|-----------|---------|
+| PHP | **8.1+** with `ext-sodium` and `ext-json` |
+| HTTP | PSR-18 client (e.g. `guzzlehttp/guzzle`) |
+| Flagmint API | Config-sync enabled for your org (same canary/GA as JS local evaluation) |
+| Packagist | `flagmint/php-sdk` |
+
+## Installation
+
+```bash
+composer require flagmint/php-sdk guzzlehttp/guzzle
+```
+
+## Quick example
+
+```php
+<?php
+
+use Flagmint\FlagmintClient;
+
+$client = new FlagmintClient([
+    'apiKey' => getenv('FLAGMINT_SDK_KEY') ?: getenv('FLAGMINT_API_KEY'),
+    // 'env' => 'production', // or staging | local
+    // 'cacheAdapter' => new \Flagmint\Cache\RedisAdapter(...),
+]);
+
+$client->ready(); // handshake + pull rules (never throws)
+
+$enabled = $client->isEnabled('new-checkout', [
+    'kind' => 'user',
+    'key' => (string) $userId,
+    'plan' => 'premium',
+]);
+
+if ($enabled) {
+    // New checkout path
+}
+```
+
+### Typed readers
+
+```php
+$on      = $client->bool('new-checkout', false, $context);
+$title   = $client->string('hero-title', 'Welcome', $context);
+$percent = $client->number('rollout-pct', 0, $context);
+$config  = $client->json('paywall-copy', [], $context);
+```
+
+## How config-sync works in PHP
+
+1. `ready()` / `refresh()` performs `POST /auth/asl-handshake` with an X25519 `clientPublicKey`.
+2. Rules arrive from `GET /evaluator/v2/flags/config` (lease + `fullConfig` or deltas).
+3. Snapshots can be persisted through a `CacheAdapter` so other workers warm faster.
+4. Each `getFlag` / `bool` / … evaluates **locally**. If the lease expired, the SDK **fail-closes** to your fallback.
+
+For a Supervisor refresh loop, see `bin/config-sync-worker.php` in the package.
+
+## Caching across FPM workers
+
+| Adapter | Package | When to use |
+|---------|---------|-------------|
+| `ArrayMemoryAdapter` | built-in default | Single process / tests |
+| `RedisAdapter` | built-in (+ Predis) | Share rules across FPM workers |
+| Custom `CacheAdapter` | your code | Any store that implements the interface |
+
+Lease `expiresAt` (epoch ms) is the fail-closed source of truth — do not rely on Redis TTL alone.
+
+```php
+use Flagmint\Cache\PredisRedisClient;
+use Flagmint\Cache\RedisAdapter;
+use Predis\Client as Predis;
+
+$adapter = new RedisAdapter(
+    new PredisRedisClient(new Predis(getenv('REDIS_URL'))),
+);
+
+$client = new FlagmintClient([
+    'apiKey' => getenv('FLAGMINT_SDK_KEY'),
+    'cacheAdapter' => $adapter,
+]);
+```
+
+## Errors
+
+Pass `onError` to observe soft failures (`ERR_AUTH`, `ERR_RATE_LIMITED`, `ERR_LEASE_EXPIRED`, `ERR_NETWORK`, …). Evaluation methods still return fallbacks.
+
+## Links
+
+- Packagist: [flagmint/php-sdk](https://packagist.org/packages/flagmint/php-sdk)
+- GitHub: [flagmint/flagmint-php-sdk](https://github.com/flagmint/flagmint-php-sdk)
+- Changelog: [CHANGELOG.md](https://github.com/flagmint/flagmint-php-sdk/blob/main/CHANGELOG.md)
+- Laravel wrapper: [Laravel SDK](/sdks/laravel)
