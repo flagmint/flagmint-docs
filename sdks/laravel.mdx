@@ -35,19 +35,55 @@ FLAGMINT_CACHE_DRIVER=laravel
 FLAGMINT_QUEUE_EVENTS=true
 ```
 
-On boot, call ready once (e.g. in a service provider or middleware) if you want an eager warm:
+## Keeping rules fresh (`ready` vs `flagmint:refresh`)
 
-```php
-use Flagmint\Laravel\Facades\Flagmint;
+You do **not** need to run Artisan on every page load.
 
-Flagmint::ready();
-```
+Think of two jobs:
 
-Or schedule refreshes:
+| Job | What it does | Network? |
+|-----|----------------|----------|
+| **Evaluate** (`bool` / `getFlag` / `@feature`) | Read the in-process rules snapshot | No |
+| **Refresh** (`ready()` / `refresh()` / `flagmint:refresh`) | Handshake + pull latest config into the rules store (and cache adapter) | Yes |
+
+### Recommended production setup
+
+1. Use a **shared** cache driver (`FLAGMINT_CACHE_DRIVER=laravel` with Redis/Memcached, or `redis`).
+2. **Warm / refresh on a schedule** (cron, Laravel Scheduler, or Supervisor) — not inside every HTTP request:
 
 ```bash
 php artisan flagmint:refresh
 ```
+
+```php
+// routes/console.php or app/Console/Kernel.php
+Schedule::command('flagmint:refresh')->everyMinute();
+```
+
+3. In request code, just evaluate. Workers hydrate from the shared snapshot when the client boots; they do not need Artisan per visitor.
+
+```php
+use Flagmint\Laravel\Facades\Flagmint;
+
+if (Flagmint::bool('new-checkout')) {
+    // local eval only
+}
+```
+
+### When to call `Flagmint::ready()`
+
+`ready()` always runs a full refresh (handshake + config pull). Use it when:
+
+- You want an **eager warm** once at process start (e.g. Octane boot, a long-lived worker), or
+- You’re in a **demo / POC** and calling it on each page load is fine so a browser refresh picks up dashboard toggles immediately.
+
+Avoid calling `ready()` on every FPM request in production — that turns every page into a Flagmint API round-trip.
+
+### When to use `php artisan flagmint:refresh`
+
+Use the Artisan command (or `Flagmint::refresh()`) to **push new rules into the shared cache** after publishes, or on a timer. Any worker that loads from that cache then sees the update without each request talking to Flagmint.
+
+**Caveat:** with `FLAGMINT_CACHE_DRIVER=memory`, Artisan only refreshes that CLI process. Web workers keep their own in-memory copy until *they* refresh. Prefer `laravel` or `redis` in multi-worker apps.
 
 ## Facade
 
@@ -90,12 +126,12 @@ Optional fallback: `@feature('new-checkout', true)`.
 
 ## Caching
 
-Default `FLAGMINT_CACHE_DRIVER=laravel` uses your app’s cache store so FPM workers share one rules snapshot (configure Redis/Memcached on Laravel as usual).
+Default `FLAGMINT_CACHE_DRIVER=laravel` uses your app’s cache store so FPM workers **share one rules snapshot** (configure Redis/Memcached on Laravel as usual). That is what makes a scheduled `flagmint:refresh` useful: one command updates the store; other workers read it on the next hydrate.
 
 | Driver | Behavior |
 |--------|----------|
-| `laravel` | `LaravelCacheAdapter` (default) |
-| `memory` | Process-local only |
+| `laravel` | `LaravelCacheAdapter` (default) — shared across workers via your cache store |
+| `memory` | Process-local only — Artisan refresh does **not** update web workers |
 | `redis` | Direct Predis via `FLAGMINT_REDIS_URL` |
 | `custom` | `FLAGMINT_CACHE_ADAPTER` FQCN implementing `CacheAdapter` |
 

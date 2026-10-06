@@ -81,7 +81,9 @@ $config  = $client->json('paywall-copy', [], $context);
 3. Snapshots can be persisted through a `CacheAdapter` so other workers warm faster.
 4. Each `getFlag` / `bool` / … evaluates **locally**. If the lease expired, the SDK **fail-closes** to your fallback.
 
-For a Supervisor refresh loop, see `bin/config-sync-worker.php` in the package.
+`ready()` always refreshes over the network — it is not a no-op after the first call. In production, prefer a shared cache plus a periodic refresh loop; do not call `ready()` on every PHP-FPM request.
+
+For a Supervisor refresh loop, see `bin/config-sync-worker.php` in the package. In Laravel, use `php artisan flagmint:refresh` on a schedule — see [Laravel SDK](/sdks/laravel#keeping-rules-fresh-ready-vs-flagmintrefresh).
 
 ## Caching across FPM workers
 
