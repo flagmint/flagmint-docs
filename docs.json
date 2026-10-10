@@ -4,9 +4,9 @@
   "name": "Flagmint Docs",
   "openapi": "api-reference/openapi.json",
   "colors": {
-    "primary": "#4C1D95",
-    "light": "#7C3AED",
-    "dark": "#4C1D95"
+    "primary": "#006837",
+    "light": "#63F57E",
+    "dark": "#008c4a"
   },
   "favicon": "/favicon.svg",
   "logo": {

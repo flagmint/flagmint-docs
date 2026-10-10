@@ -8,7 +8,7 @@ description: "Feature flag SDK for Vue 2 and Vue 3 applications with real-time u
 A lightweight and powerful feature flag SDK for Vue 2 and Vue 3 applications with real-time updates via SSE (Server-Sent Events).
 
 <Note>
-  **v2.0.0+** uses `transportMode: 'sse'`. If you are on an older version, use `'websocket'` instead.
+  **v2.0.0+** uses `transportMode: 'sse'` / `'auto'` (not `'websocket'`). **v2.1.0+** depends on `flagmint-js-sdk` ^2.2.1 and supports `shareConnection` for one SSE stream across same-origin tabs/iframes.
 </Note>
 
 ## Features
@@ -102,6 +102,7 @@ The `createFlagmintPlugin` accepts a `FlagClientOptions` object:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `apiKey` | `string` | *required* | Your Flagmint API key |
+| `enableFlagmint` | `boolean` | *required* | Set `true` to connect; `false` skips the network (local/dev) |
 | `context` | `Record<string, any>` | `{}` | User attributes for targeting (e.g., user_id, email, country) |
 | `autoRefresh` | `boolean` | `true` | Automatically refresh flags when context changes |
 | `refreshIntervalMs` | `number` | `30000` | Polling interval for HTTP mode (milliseconds) |
@@ -109,8 +110,11 @@ The `createFlagmintPlugin` accepts a `FlagClientOptions` object:
 | `enableOfflineCache` | `boolean` | `true` | Enable offline flag caching |
 | `cacheTTL` | `number` | `3600000` | Cache time-to-live (1 hour default) |
 | `transportMode` | `'auto' \| 'sse' \| 'long-polling'` | `'auto'` | Connection mode (auto tries SSE first; `'websocket'` in versions prior to 2.0.0) |
+| `configSync` | `boolean` | `false` | **Local evaluation** — download signed rules and run `getFlag` in-process (`flagmint-js-sdk` ≥ 2.2.1, API 1.7.0+). When on, `shareConnection` defaults to `false`. See [Local evaluation](/sdks/nodejs-local-evaluation) |
+| `shareConnection` | `boolean` | `true` in browsers with `BroadcastChannel` | One SSE stream per API key across same-origin tabs/iframes (from `flagmint-js-sdk` ≥ 2.0). Set `false` if two clients on the page need different contexts |
 | `previewMode` | `boolean` | `false` | Local-only mode (no network calls) |
 | `onError` | `(err: Error) => void` | `undefined` | Error callback handler |
+| `deferInitialization` | `boolean` | `false` | Wait for `$flagmintInit()` / injected `init()` before connecting |
 
 <Tip>
   Use `transportMode: 'auto'` for the best experience — it automatically uses SSE with fallback to long-polling.
