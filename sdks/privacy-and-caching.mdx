@@ -15,6 +15,16 @@ This guide explains how to control the SDK storage footprint so engineering impl
   This page provides technical implementation guidance, not legal advice. Confirm your final configuration with your legal or compliance team.
 </Note>
 
+## PII on the wire (config-sync)
+
+When an attribute is marked **PII** in the dashboard (for example `email`), client-bound config-sync payloads hash those rule values before they leave the API (`hmac-v1` with a per-project salt). The SDK hashes matching context fields the same way before local compare, so you keep sending **plaintext** in evaluation context.
+
+- Redis / server evaluation still use **plaintext** rules.
+- Existing email segments and rules do **not** need a database rewrite — a rules recompile hashes at serialize time.
+- Prefer equality-style operators (`eq`, `neq`, `in`, `nin`, `exists`, `not_exists`) for PII attributes; other operators will not match hashed client values.
+
+Server-only flags (`client_side_enabled: false`) are evaluated on server streams / Node and are **not** included in browser `fullConfig`.
+
 ## How these options relate to local evaluation
 
 These three options are **independent**. `configSync` does **not** override `enableOfflineCache` or `persistContext`.
