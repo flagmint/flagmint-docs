@@ -78,7 +78,7 @@ Every flag has these core properties:
 | `key` | string | Unique machine-readable identifier within the project (e.g. `new_dashboard`). Auto-generated from the name if not provided. |
 | `type` | enum | Data type: `boolean`, `string`, `number`, or `json` |
 | `is_active` | boolean | Whether the flag is evaluated. Inactive flags return their off variation. |
-| `client_side_enabled` | boolean | Whether the flag is available to client-side SDKs. Defaults to `true`. |
+| `client_side_enabled` | boolean | When `true`, the flag is included in browser config-sync (local eval). When `false`, it is **server-only**: evaluated on server streams / Node, never shipped in browser `fullConfig`. Defaults to `true`. |
 | `analytics_enabled` | boolean | Whether evaluation metrics are tracked. Defaults to `true`. |
 | `metadata` | object | Arbitrary key-value data. Includes `flag_template` to identify the creation template. |
 
@@ -264,7 +264,7 @@ You can also book that on/off change for a future time with a [scheduled release
 When the SDK requests flag values, the server evaluates each flag in this order:
 
 1. **Is the flag active?** If `is_active` is `false`, return the off variation immediately.
-2. **Is `client_side_enabled` true?** SDK evaluations only include flags marked for client-side access.
+2. **Delivery scope.** Compiled `env:rules` holds **all** flags for server-eval (SSE RuleEngine, HTTP/WS). Browser config-sync (`fullConfig` / `delta`) only includes flags with `client_side_enabled: true` (filtered at serialize time).
 3. **Are there targeting rules?** If yes, evaluate them using [first-match-wins](/concepts/targeting-rules#rule-ordering-and-first-match-wins) logic.
 4. **Is there a rollout?** If targeting rules match (or there are none) and a rollout is configured, apply the [rollout strategy](/concepts/targeting-rules#rollout-strategies).
 5. **Return the flag value.** Either from a matched variation, a rollout result, or the base value — coerced to the flag's expected type.

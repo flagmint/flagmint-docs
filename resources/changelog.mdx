@@ -9,6 +9,18 @@ Release notes for the Flagmint API and dashboard. SDK package versions are liste
   **Dashboard v1.8.0** (October 10, 2026). **API remains v1.7.0** — use the pairing table under v1.7.0 for SDKs and scheduled releases.
 </Note>
 
+<Update label="Unreleased" description="PII hash-on-wire + server vs client delivery">
+
+## Privacy / config-sync
+
+- Attributes can be marked **PII**. Client config-sync hashes those targeting values on the wire (`hmac-v1`); SDKs hash context the same way before local compare. Redis stays plaintext for server evaluation.
+- **Migration:** existing email rules and segments keep working after a rules recompile — no database rewrite of rule rows.
+- **Client-side SDK** setting: on = included in browser config-sync; off = **server-only** (still evaluated on server streams / Node, never in browser `fullConfig`).
+
+See [SDK privacy and caching](/sdks/privacy-and-caching) and [Feature flags](/concepts/flags).
+
+</Update>
+
 <Update label="v1.8.0" description="Released October 10, 2026">
 
 ## Highlights
