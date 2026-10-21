@@ -19,6 +19,8 @@ This guide explains how to control the SDK storage footprint so engineering impl
 
 When an attribute is marked **PII** in the dashboard (for example `email`), client-bound config-sync payloads hash those rule values before they leave the API (`hmac-v1` with a per-project salt). The SDK hashes matching context fields the same way before local compare, so you keep sending **plaintext** in evaluation context.
 
+Requires **Flagmint API 1.8.2+** and **`flagmint-js-sdk` 2.2.3+** (framework wrappers must depend on that core). See [changelog v1.8.2](/resources/changelog#v1-8-2).
+
 - Redis / server evaluation still use **plaintext** rules.
 - Existing email segments and rules do **not** need a database rewrite — a rules recompile hashes at serialize time.
 - Prefer equality-style operators (`eq`, `neq`, `in`, `nin`, `exists`, `not_exists`) for PII attributes; other operators will not match hashed client values.
@@ -32,7 +34,7 @@ These three options are **independent**. `configSync` does **not** override `ena
 | Option | Default | What it controls |
 |--------|---------|------------------|
 | `configSync` | `false` | **Local evaluation** — download signed rules and run `getFlag` in-process. See [Local evaluation](/sdks/nodejs-local-evaluation). |
-| `enableOfflineCache` | `true` | Load/save **flags** (and **rules** when `configSync` is on) through the cache adapter. |
+| `enableOfflineCache` | `true` | With server eval: load/save evaluated **flags**. With `configSync`: load/save **rules** only (not evaluated `*_flags`). |
 | `persistContext` | `false` | Load/save evaluation **context** through the cache adapter. |
 
 So yes: you can use `configSync: true` **and** keep caching. With both `configSync` and `enableOfflineCache` true, the SDK prefers the cached **rules** snapshot on boot; it still respects `persistContext` for context storage.
