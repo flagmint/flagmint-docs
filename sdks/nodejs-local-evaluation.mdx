@@ -1,10 +1,10 @@
 ---
 title: "JavaScript — Local evaluation (config sync)"
-description: "Evaluate flags in your app with signed rules — API 1.7.0+, flagmint-js-sdk 2.2.1+, and how usage meters apply."
+description: "Evaluate flags in your app with signed rules — API 1.7.0+ (PII / client delivery: API 1.8.2+), flagmint-js-sdk 2.2.3+, and how usage meters apply."
 ---
 
 <Note>
-  **Requires Flagmint API v1.7.0+** and **`flagmint-js-sdk` v2.2.1+**. See the [changelog](/resources/changelog#v170).
+  **Requires Flagmint API v1.7.0+** and **`flagmint-js-sdk` v2.2.1+** for local evaluation. For **PII hash-on-wire** and **client vs server delivery**, use **API 1.8.2+** and **`flagmint-js-sdk` 2.2.3+** (framework wrappers must depend on that core). See the [changelog](/resources/changelog#v1-8-2).
 </Note>
 
 By default the JavaScript SDK uses **server evaluation**: Flagmint computes flag values and streams the results to your app. **Local evaluation** (config sync) instead downloads **signed flag rules** so `getFlag()` runs **in your process** — no network on the read path after the rules are warm.
@@ -32,13 +32,14 @@ Classic server evaluation remains the default. Nothing breaks if you leave `conf
 
 | Component | Minimum |
 |-----------|---------|
-| Flagmint API | **1.7.0+** |
-| JavaScript SDK | **`flagmint-js-sdk` 2.2.1+** |
+| Flagmint API | **1.7.0+** ( **1.8.2+** for PII hash-on-wire / client-side delivery filter ) |
+| JavaScript SDK | **`flagmint-js-sdk` 2.2.1+** ( **2.2.3+** recommended; required for PII wire + multi-tab cache fixes ) |
+| Framework wrappers | Depend on **`flagmint-js-sdk` ^2.2.3** (e.g. Vue `flagmint-vuejs-feature-flags` **2.1.1+**) |
 | Node.js | 18+ with an `EventSource` polyfill (for example `eventsource`) |
 | Org access | Config sync may be **gradually enabled** per organization while we roll out |
 
 <Warning>
-  Use **2.2.1 or later**. An earlier **2.2.0** listing on npm shipped incomplete runtime code for config sync. Upgrade before relying on local evaluation in production.
+  Use **2.2.1 or later**. An earlier **2.2.0** listing on npm shipped incomplete runtime code for config sync. Prefer **2.2.3+** in production — and avoid anything that still resolves the typo publish `2.2.3-rc-2`.
 </Warning>
 
 ## Quick start
@@ -85,24 +86,24 @@ Key layout used by the SDK helpers (match these in Redis):
 
 | Kind | Key | Notes |
 |------|-----|--------|
-| Rules | `flagmint_{apiKey}_rules` | Lease `expiresAt` gates reuse — **not** a Redis TTL |
-| Flags | `flagmint_{apiKey}_flags` | Evaluated-flag cache; wall-clock TTL on load |
-| Context | `flagmint_{apiKey}_context` | Optional |
+| Rules | `flagmint_{apiKey}_rules` | Lease `expiresAt` gates reuse — **not** a Redis TTL. **This is what config sync persists.** |
+| Flags | `flagmint_{apiKey}_flags` | Server-eval only. With `configSync`, `FlagClient` does **not** load/save this key (`saveFlags` is a no-op; leftovers are cleared). |
+| Context | `flagmint_{apiKey}_context` | Optional (`persistContext`) |
 
 Never store session MAC / ECDH material in Redis — only the rules snapshot (`version`, `expiresAt`, `flags`, `segments`).
 
 ### Example: Redis `cacheAdapter` (in your app)
 
-Build the adapter in **your** service (not inside the SDK package). Sketch:
+Build the adapter in **your** service (not inside the SDK package). Sketch. Under `configSync`, only the rules methods are used; include `loadFlags` / `saveFlags` if the same adapter also serves server-eval clients.
 
 ```javascript
 function createRedisCacheAdapter(redis) {
   const rulesKey = (apiKey) => `flagmint_${apiKey}_rules`;
-  // …also flags / context keys if you want them
+  // …also flags / context keys if you want them (server-eval / persistContext)
 
   return {
-    async loadFlags(apiKey, ttl) { /* JSON { ts, data }; honor ttl */ },
-    async saveFlags(apiKey, data) { /* … */ },
+    async loadFlags(apiKey, ttl) { /* unused under configSync; JSON { ts, data } for server-eval */ },
+    async saveFlags(apiKey, data) { /* unused under configSync — FlagClient no-ops this */ },
     async loadContext(apiKey) { /* … */ },
     async saveContext(apiKey, ctx) { /* … */ },
     async loadRulesSnapshot(apiKey) {
@@ -157,8 +158,8 @@ When analytics is on for a flag, call-site `getFlag` can still report into your 
   <Card title="Usage & meters" icon="gauge" href="/billing/usage">
     What fills the included pot
   </Card>
-  <Card title="Changelog v1.7.0" icon="newspaper" href="/resources/changelog#v170">
-    Product notes for this release
+  <Card title="Changelog v1.8.2" icon="newspaper" href="/resources/changelog#v182">
+    PII hash-on-wire + client delivery pairing
   </Card>
   <Card title="Go local evaluation" icon="golang" href="/sdks/go/local-evaluation">
     In-process evaluation for Go
