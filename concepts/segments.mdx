@@ -24,17 +24,29 @@ Targeting rule references segment
 
 Segments are evaluated as part of the [targeting rules](/concepts/targeting-rules) pipeline. A segment on its own doesn't determine what value to return — the targeting rule that references it decides whether to serve a variation or apply a rollout.
 
+## Segment templates
+
+Templates are **blueprints**, not live audiences. They do not evaluate at runtime and cannot be referenced by targeting rules. Use a template to start a segment faster: pick a sample, remove attributes you do not need, then save a real segment.
+
+**Platform samples** (for example Mobile iOS, Chrome browsers, Windows desktop) are managed by Flagmint Support Admin under **Admin → Segment samples**. Project editors can also **save their own templates** per project from create/edit segment (**Save as template**).
+
+You can start from a sample on the Segments page, **Create Segment**, or flag targeting (**Start from a sample…**). Starting from targeting still uses the existing attach flow: after you create the segment it can be attached to the chosen variation automatically.
+
+Device samples may use attributes such as `platform`, `device_type`, `browser`, `browser_version`, and `os`. Those keys only match if your SDK evaluation context includes them — Flagmint does not derive browser or OS from the User-Agent automatically.
+
+Flagmint Support Admin can also create **system attributes** under **Admin → Attributes**. Organization users still create only **custom** attributes (`custom` category / `custom.*` keys).
+
 ## Creating a Segment
 
 You can create segments from the Flagmint dashboard or via the API.
 
 ### From the Dashboard
 
-Navigate to **Segments** in the sidebar under Feature Management, then click **+ New Segment**.
+Navigate to **Segments** in the sidebar under Feature Management, then click **+ New Segment**. Optionally choose **Start from a sample** to prefill rules from a ready-made audience.
 
 <img src="/images/segments-empty.png" alt="Segments list page showing empty state with Create Segment button" />
 
-Fill in the segment details: a name, an optional key (alphanumeric with dashes and underscores), and an optional description. Then add your targeting rules using the **+ Add Rule** button.
+Fill in the segment details: a name, an optional key (alphanumeric with dashes and underscores), and an optional description. Then add your targeting rules using the **+ Add Rule** button (or trim rules that came from a template).
 
 <img src="/images/segments-create.png" alt="Create New Segment form with fields for name, key, description, and targeting rules" />
 

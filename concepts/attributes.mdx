@@ -40,7 +40,11 @@ Categories map directly to the [evaluation context](/concepts/targeting-rules#co
 
 ## System vs Custom Attributes
 
-Flagmint ships with built-in **system attributes** covering common targeting scenarios (country, email, plan, age, etc.). These cannot be deleted, but they can be **deactivated** if you don't need them — deactivated attributes are hidden from the attribute picker.
+Flagmint ships with built-in **system attributes** covering common targeting scenarios (country, email, plan, age, device `platform` / `device_type`, and client fields such as `browser`, `browser_version`, and `os`). These cannot be deleted by project users, but they can be **deactivated** (hidden from pickers). Flagmint Support Admin can create and edit system attributes under **Admin → Attributes**.
+
+<Note>
+  Device attributes only match when your SDK sends the corresponding keys in the evaluation context. Flagmint does not parse User-Agent strings for you.
+</Note>
 
 **Custom attributes** are ones you create to match your specific application data. Custom attributes must use the `custom` category or have a key prefixed with `custom.`.
 
